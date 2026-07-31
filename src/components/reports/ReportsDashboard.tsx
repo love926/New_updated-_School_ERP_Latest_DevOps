@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 
 // FIREBASE IMPORTS
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { 
   getFirestore, 
   collection, 
@@ -187,6 +187,9 @@ export const CATEGORY_CONFIG: Record<CategoryType, { color: string; badgeBg: str
 };
 
 export default function ReportsDashboard() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userEmail, setUserEmail] = useState<string>('');
+  
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [classList, setClassList] = useState<ClassItem[]>([]);
@@ -213,7 +216,6 @@ export default function ReportsDashboard() {
 
   const [isSettingsConfigured, setIsSettingsConfigured] = useState<boolean>(true);
   const [showAlertModal, setShowAlertModal] = useState<boolean>(false);
-  const [activeUserId, setActiveUserId] = useState<string>("X1Q76ib1XXPWcPp3FSQPLLaTzL83");
   const [notification, setNotification] = useState<{ show: boolean; title: string; message: string }>({ show: false, title: '', message: '' });
 
   const [dynamicCriteria, setDynamicCriteria] = useState<Record<CategoryType, GradingCriteria>>(CATEGORY_GRADES_MAP);
@@ -224,6 +226,22 @@ export default function ReportsDashboard() {
     Average: CATEGORY_CONFIG.Average.defaultRemarks,
     Poor: CATEGORY_CONFIG.Poor.defaultRemarks,
   });
+
+  // FIREBASE AUTHENTICATION LISTENER
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.email) {
+        setCurrentUser(user);
+        setUserEmail(user.email);
+      } else {
+        setCurrentUser(null);
+        setUserEmail('');
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -252,16 +270,13 @@ export default function ReportsDashboard() {
 
   // AUTOMATIC CLEANUP & DATE 5 PURGE LOGIC
   useEffect(() => {
-    if (!activeClassId) return;
+    if (!activeClassId || !userEmail) return;
 
     const autoCleanOldReports = async () => {
       try {
-        const user = auth.currentUser;
-        const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
         const today = new Date();
-
         const isDate5OrAfter = today.getDate() >= 5;
-        const autoReportsRef = collection(db, 'users', userId, 'classes', activeClassId, 'reports');
+        const autoReportsRef = collection(db, 'users', userEmail, 'classes', activeClassId, 'reports');
 
         const autoSnap = await getDocs(autoReportsRef);
 
@@ -269,11 +284,11 @@ export default function ReportsDashboard() {
           autoSnap.docs.forEach(async (docSnap) => {
             const data = docSnap.data();
             if (data.monthKey && data.monthKey !== monthsInfo.currentKey) {
-              await deleteDoc(doc(db, 'users', userId, 'classes', activeClassId, 'reports', docSnap.id));
+              await deleteDoc(doc(db, 'users', userEmail, 'classes', activeClassId, 'reports', docSnap.id));
             }
           });
 
-          const notifRef = collection(db, 'users', userId, 'notifications');
+          const notifRef = collection(db, 'users', userEmail, 'notifications');
           await addDoc(notifRef, {
             title: "Reports Reset Notification",
             message: `On Date 5, previous month Automatic reports configurations have been cleared for class ${activeClassId}. Re-generate reports required.`,
@@ -288,15 +303,13 @@ export default function ReportsDashboard() {
     };
 
     autoCleanOldReports();
-  }, [activeClassId, monthsInfo]);
+  }, [activeClassId, userEmail, monthsInfo]);
 
   // LISTEN TO FIRESTORE RULES
   useEffect(() => {
-    const user = auth.currentUser;
-    const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
-    setActiveUserId(userId);
+    if (!userEmail) return;
 
-    const rulesDocRef = doc(db, 'users', userId, 'settings', 'grading_rules');
+    const rulesDocRef = doc(db, 'users', userEmail, 'settings', 'grading_rules');
 
     const unsubRules = onSnapshot(rulesDocRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -349,13 +362,13 @@ export default function ReportsDashboard() {
     });
 
     return () => unsubRules();
-  }, []);
+  }, [userEmail]);
 
   // LISTEN TO FIRESTORE CLASSES & SORT STUDENTS ROLL-NO WISE
   useEffect(() => {
-    const user = auth.currentUser;
-    const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
-    const classesRef = collection(db, 'users', userId, 'classes');
+    if (!userEmail) return;
+
+    const classesRef = collection(db, 'users', userEmail, 'classes');
 
     const unsubscribe = onSnapshot(classesRef, async (snapshot) => {
       const fetchedClasses: ClassItem[] = [];
@@ -369,7 +382,7 @@ export default function ReportsDashboard() {
 
         if (activeClassId === classId) {
           try {
-            const reportsRef = collection(db, 'users', userId, 'classes', classId, 'reports');
+            const reportsRef = collection(db, 'users', userEmail, 'classes', classId, 'reports');
             const reportsSnap = await getDocs(reportsRef);
             reportsSnap.docs.forEach((rDoc) => {
               const rData = rDoc.data();
@@ -443,16 +456,13 @@ export default function ReportsDashboard() {
     });
 
     return () => unsubscribe();
-  }, [realtimeMetrics, dynamicCriteria, selectedMonth, activeClassId, monthsInfo]);
+  }, [userEmail, realtimeMetrics, dynamicCriteria, selectedMonth, activeClassId, monthsInfo]);
 
   // LIVE QUIZZES & ATTENDANCE
   useEffect(() => {
-    if (!activeClassId) return;
+    if (!activeClassId || !userEmail) return;
 
-    const user = auth.currentUser;
-    const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
-
-    const attendanceRef = collection(db, 'users', userId, 'attendance');
+    const attendanceRef = collection(db, 'users', userEmail, 'attendance');
     const unsubAttendance = onSnapshot(attendanceRef, (attSnap) => {
       const attStats: Record<string, { present: number; total: number }> = {};
 
@@ -470,7 +480,7 @@ export default function ReportsDashboard() {
         }
       });
 
-      const quizzesRef = collection(db, 'users', userId, 'classes', activeClassId, 'quizzes');
+      const quizzesRef = collection(db, 'users', userEmail, 'classes', activeClassId, 'quizzes');
       const unsubQuizzes = onSnapshot(quizzesRef, (quizSnap) => {
         const quizStats: Record<string, { totalObtained: number; totalMax: number }> = {};
 
@@ -519,7 +529,7 @@ export default function ReportsDashboard() {
     });
 
     return () => unsubAttendance();
-  }, [activeClassId]);
+  }, [activeClassId, userEmail]);
 
   const filteredClasses = useMemo(() => {
     return classList.filter(c => 
@@ -561,8 +571,7 @@ export default function ReportsDashboard() {
       return;
     }
 
-    const user = auth.currentUser;
-    const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
+    if (!userEmail) return;
     const fatherNumber = (student.fatherPhone || student.phone || '').replace(/[^0-9]/g, '');
 
     if (!fatherNumber) {
@@ -577,10 +586,10 @@ export default function ReportsDashboard() {
     try {
       if (activeClassId) {
         const reportDocId = `${student.id}_${selectedMonth}`;
-        const autoRef = doc(db, 'users', userId, 'classes', activeClassId, 'reports', reportDocId);
+        const autoRef = doc(db, 'users', userEmail, 'classes', activeClassId, 'reports', reportDocId);
         await setDoc(autoRef, { lastWhatsAppSentMonth: selectedMonth }, { merge: true });
 
-        const notifRef = collection(db, 'users', userId, 'notifications');
+        const notifRef = collection(db, 'users', userEmail, 'notifications');
         await addDoc(notifRef, {
           title: "WhatsApp Report Forwarded",
           message: `Report for ${student.name} sent to father number (${fatherNumber}) for ${selectedMonth}.`,
@@ -603,7 +612,7 @@ export default function ReportsDashboard() {
       return;
     }
 
-    if (!activeClassId || !currentClass || selectedStudentIds.length === 0) return;
+    if (!activeClassId || !currentClass || selectedStudentIds.length === 0 || !userEmail) return;
 
     const updatedStudents = currentClass.students.map((s) => {
       const isSelected = selectedStudentIds.some((id) => String(id) === String(s.id));
@@ -620,14 +629,11 @@ export default function ReportsDashboard() {
     setSelectedStudentIds([]);
 
     try {
-      const user = auth.currentUser;
-      const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
-
       for (const studentId of selectedIdsCopy) {
         const stObj = currentClass.students.find((s) => String(s.id) === String(studentId));
         if (stObj) {
           const reportDocId = `${studentId}_${selectedMonth}`;
-          const reportDocRef = doc(db, 'users', userId, 'classes', activeClassId, 'reports', reportDocId);
+          const reportDocRef = doc(db, 'users', userEmail, 'classes', activeClassId, 'reports', reportDocId);
           await setDoc(
             reportDocRef,
             {
@@ -643,7 +649,7 @@ export default function ReportsDashboard() {
             { merge: true }
           );
 
-          const notifRef = collection(db, 'users', userId, 'notifications');
+          const notifRef = collection(db, 'users', userEmail, 'notifications');
           await addDoc(notifRef, {
             title: "Automatic Report Generated",
             message: `Automatic Report generated for ${stObj.name} (Roll: ${stObj.rollNo}) in category ${activeCategoryTab}.`,
@@ -660,7 +666,7 @@ export default function ReportsDashboard() {
   };
 
   const handleRemoveFromCategory = async (studentId: string | number) => {
-    if (!activeClassId || !currentClass) return;
+    if (!activeClassId || !currentClass || !userEmail) return;
 
     const updatedStudents = currentClass.students.map((s) =>
       String(s.id) === String(studentId) ? { ...s, category: null } : s
@@ -673,10 +679,8 @@ export default function ReportsDashboard() {
     );
 
     try {
-      const user = auth.currentUser;
-      const userId = user ? user.uid : "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
       const reportDocId = `${studentId}_${selectedMonth}`;
-      const reportDocRef = doc(db, 'users', userId, 'classes', activeClassId, 'reports', reportDocId);
+      const reportDocRef = doc(db, 'users', userEmail, 'classes', activeClassId, 'reports', reportDocId);
       await deleteDoc(reportDocRef);
       showToast("Category Reset", "Student moved back to unassigned list.");
     } catch (err) {
@@ -859,7 +863,7 @@ export default function ReportsDashboard() {
                 📁 Database Document Path:
               </div>
               <div className="truncate font-bold text-slate-700 dark:text-slate-200">
-                users / {activeUserId} / settings / grading_rules
+                users / {userEmail || 'LOGGED_IN_USER_EMAIL'} / settings / grading_rules
               </div>
             </div>
 
@@ -1017,7 +1021,7 @@ export default function ReportsDashboard() {
               <div>
                 <h4 className="text-xs font-black text-rose-500">First Add Grading Rules In Setting Page!</h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-300 font-bold">
-                  Document Path: <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px]">users/{activeUserId}/settings/grading_rules</code>
+                  Document Path: <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px]">users/{userEmail || 'USER_EMAIL'}/settings/grading_rules</code>
                 </p>
               </div>
             </div>
@@ -1062,7 +1066,7 @@ export default function ReportsDashboard() {
 
         {loading && (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <Loader2 className="h-10 w-10 text-orange-500" />
+            <Loader2 className="h-10 w-10 text-orange-500 animate-spin" />
             <p className="text-xs font-bold text-slate-400">Loading Firestore Realtime Database...</p>
           </div>
         )}
@@ -1427,7 +1431,7 @@ export default function ReportsDashboard() {
 
       </main>
 
-      {/* BOTTOM NAVBAR (Clean border applied) */}
+      {/* BOTTOM NAVBAR */}
       <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
         <div className={`flex items-center justify-between rounded-full px-6 py-3 shadow-lg border w-[380px] ${
           isDarkMode ? 'bg-[#0e131f] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700'

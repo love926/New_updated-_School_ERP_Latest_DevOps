@@ -8,12 +8,12 @@ import {
   doc, 
   getDoc, 
   setDoc, 
-  collectionGroup,
   query,
   where,
   orderBy,
   limit
 } from 'firebase/firestore';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   Search,
   Bell,
@@ -56,11 +56,12 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
+const auth = getAuth(app);
 
-const USER_ID = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83';
 const ITEMS_PER_PAGE = 10;
 
 export default function Attendance() {
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
   const [classes, setClasses] = useState<any[]>([]);
@@ -98,6 +99,21 @@ export default function Attendance() {
   const [showSkipModal, setShowSkipModal] = useState<boolean>(false);
   const [isSavingSkipped, setIsSavingSkipped] = useState<boolean>(false);
 
+  // LISTEN TO FIREBASE AUTH FOR USER EMAIL
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.email) {
+        setCurrentUserEmail(user.email);
+      } else {
+        // Fallback to localStorage or Default email if auth state is delayed
+        const savedEmail = localStorage.getItem('userEmail') || 'admin@gmail.com';
+        setCurrentUserEmail(savedEmail);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
@@ -118,17 +134,15 @@ export default function Attendance() {
     setYesterdayDate(curr.toISOString().split('T')[0]);
   }, [selectedDate]);
 
-  // 1. FETCH CLASSES & STUDENTS FROM FIREBASE
+  // 1. FETCH CLASSES STRICTLY FOR CURRENT LOGGED-IN EMAIL
   useEffect(() => {
+    if (!currentUserEmail) return;
+
     const fetchClasses = async () => {
       try {
-        const classesRef = collection(db, 'users', USER_ID, 'classes');
-        let snapshot = await getDocs(classesRef);
-
-        if (snapshot.empty) {
-          const groupRef = collectionGroup(db, 'classes');
-          snapshot = await getDocs(groupRef);
-        }
+        // Path: users -> {userEmail} -> classes
+        const classesRef = collection(db, 'users', currentUserEmail, 'classes');
+        const snapshot = await getDocs(classesRef);
 
         let fetchedClasses = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
@@ -187,6 +201,8 @@ export default function Attendance() {
         setClasses(fetchedClasses);
         if (fetchedClasses.length > 0) {
           setSelectedClassId(fetchedClasses[0].id);
+        } else {
+          setSelectedClassId('');
         }
       } catch (error) {
         console.error("Error fetching classes from Firebase:", error);
@@ -194,7 +210,7 @@ export default function Attendance() {
     };
 
     fetchClasses();
-  }, []);
+  }, [currentUserEmail]);
 
   const currentClass = useMemo(() => {
     return classes.find((c) => c.id === selectedClassId) || classes[0] || { id: '', name: '', code: '', students: [] };
@@ -203,15 +219,15 @@ export default function Attendance() {
   const [attendanceMap, setAttendanceMap] = useState<Record<string | number, boolean>>({});
   const [yesterdayAttendanceMap, setYesterdayAttendanceMap] = useState<Record<string | number, boolean>>({});
 
-  // 2. FETCH ATTENDANCE RECORD & FIND LAST SAVED DATE
+  // 2. FETCH ATTENDANCE RECORD STRICTLY UNDER CURRENT EMAIL TREE
   useEffect(() => {
-    if (!selectedClassId || !selectedDate || !currentClass.students) return;
+    if (!currentUserEmail || !selectedClassId || !selectedDate || !currentClass.students) return;
 
     const fetchAttendanceRecords = async () => {
       try {
-        // Fetch Today's Attendance
+        // Fetch Today's Attendance under current Email
         const todayDocId = `${selectedClassId}_${selectedDate}`;
-        const todayRef = doc(db, 'users', USER_ID, 'attendance', todayDocId);
+        const todayRef = doc(db, 'users', currentUserEmail, 'attendance', todayDocId);
         const todaySnap = await getDoc(todayRef);
 
         if (todaySnap.exists() && todaySnap.data().attendanceMap) {
@@ -226,10 +242,10 @@ export default function Attendance() {
           setIsAlreadySaved(false);
         }
 
-        // Fetch Yesterday Attendance
+        // Fetch Yesterday Attendance under current Email
         if (yesterdayDate) {
           const ydayDocId = `${selectedClassId}_${yesterdayDate}`;
-          const ydayRef = doc(db, 'users', USER_ID, 'attendance', ydayDocId);
+          const ydayRef = doc(db, 'users', currentUserEmail, 'attendance', ydayDocId);
           const ydaySnap = await getDoc(ydayRef);
 
           if (ydaySnap.exists() && ydaySnap.data().attendanceMap) {
@@ -239,8 +255,8 @@ export default function Attendance() {
           }
         }
 
-        // Fetch Last Saved Attendance Date prior to current selectedDate
-        const attCol = collection(db, 'users', USER_ID, 'attendance');
+        // Fetch Last Saved Attendance Date under current Email
+        const attCol = collection(db, 'users', currentUserEmail, 'attendance');
         const q = query(
           attCol,
           where('classId', '==', selectedClassId),
@@ -262,7 +278,7 @@ export default function Attendance() {
 
     fetchAttendanceRecords();
     setIsReadyToSave(false);
-  }, [selectedClassId, selectedDate, yesterdayDate, currentClass]);
+  }, [currentUserEmail, selectedClassId, selectedDate, yesterdayDate, currentClass]);
 
   const handleClassChange = (classId: string) => {
     setSelectedClassId(classId);
@@ -443,18 +459,20 @@ export default function Attendance() {
     executeFinalSave();
   };
 
-  // Execution Function: Saves Holidays and Today's Attendance
+  // Execution Function: Saves Holidays and Today's Attendance strictly inside user's email tree
   const executeFinalSave = async () => {
+    if (!currentUserEmail) return;
+
     try {
       setIsSavingSkipped(true);
       setIsSaved(true);
 
-      // Save skipped days as Holiday in Firestore
+      // Save skipped days as Holiday in Firestore under users/{userEmail}/attendance
       for (const skippedDate of skippedDates) {
         if (holidaySelections[skippedDate]) {
           const { dayName } = getDayDetails(skippedDate);
           const holidayDocId = `${selectedClassId}_${skippedDate}`;
-          const holidayRef = doc(db, 'users', USER_ID, 'attendance', holidayDocId);
+          const holidayRef = doc(db, 'users', currentUserEmail, 'attendance', holidayDocId);
           await setDoc(holidayRef, {
             classId: selectedClassId,
             className: currentClass.name,
@@ -467,9 +485,9 @@ export default function Attendance() {
         }
       }
 
-      // Save Current Date Attendance Record
+      // Save Current Date Attendance Record under users/{userEmail}/attendance
       const recordDocId = `${selectedClassId}_${selectedDate}`;
-      const attDocRef = doc(db, 'users', USER_ID, 'attendance', recordDocId);
+      const attDocRef = doc(db, 'users', currentUserEmail, 'attendance', recordDocId);
 
       await setDoc(attDocRef, {
         classId: selectedClassId,
@@ -557,7 +575,6 @@ export default function Attendance() {
         <div className="mx-auto max-w-7xl flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
           
           <div className="flex items-center gap-3">
-            {/* FIXED PATH: Back to Home '/' */}
             <Link
               to="/"
               className="flex items-center justify-center h-10 w-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-[0_0_20px_rgba(249,115,22,0.5)] hover:scale-105 active:scale-95 transition-all"

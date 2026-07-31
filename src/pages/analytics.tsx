@@ -27,13 +27,11 @@ import {
 
 // Firebase Firestore & Auth Imports
 import { collection, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 
 // Components & Types
 import { StudentCaptureSection } from '../components/analytics/StudentCaptureSection';
-
-// Fallback User ID
-const FALLBACK_USER_ID = 'X1Q76ib1XXPwCp3FSQPLLaTzL83';
 
 export type CaptureCriteria = 'Weighted Score' | 'Attendance Rate' | 'Quiz Marks' | 'overallScore' | 'manualTag';
 
@@ -358,11 +356,26 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [fetchingMetrics, setFetchingMetrics] = useState(false);
 
+  // Authenticated User Email State
+  const [userEmail, setUserEmail] = useState<string | null>(auth.currentUser?.email || null);
+
   // Firestore Classes State
   const [classesList, setClassesList] = useState<any[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
-  // 🌟 DYNAMIC CLASS CREATION DATE BASED MONTHS
+  // Listen for Authentication State Changes
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user && user.email) {
+        setUserEmail(user.email);
+      } else {
+        setUserEmail(null);
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Dynamic Class Creation Date Based Months
   const currentClass = useMemo(() => {
     return classesList.find((c) => c.id === selectedClassId) || null;
   }, [selectedClassId, classesList]);
@@ -427,9 +440,6 @@ export default function AnalyticsPage() {
     totalStudentsCount: 0,
   });
 
-  // User ID Resolution
-  const activeUserId = auth.currentUser?.uid || FALLBACK_USER_ID;
-
   // SHOWPIECE SAVE CRITERIA HANDLER
   const handleSaveCriteriaShowpiece = (selected: CaptureCriteria) => {
     setCaptureCriteria(selected);
@@ -442,10 +452,16 @@ export default function AnalyticsPage() {
     }, 2500);
   };
 
-  // 1. LISTEN TO FIRESTORE CLASSES (EXTRACTING createdAt)
+  // 1. LISTEN TO DYNAMIC FIRESTORE CLASSES BY LOGGED-IN USER EMAIL
   useEffect(() => {
+    if (!userEmail) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const classesRef = collection(db, 'users', activeUserId, 'classes');
+    // Dynamic Query Path: users/{USER_EMAIL}/classes
+    const classesRef = collection(db, 'users', userEmail, 'classes');
 
     const unsubscribe = onSnapshot(
       classesRef,
@@ -460,7 +476,7 @@ export default function AnalyticsPage() {
               code: data.code || '',
               monthlyFee: data.monthlyFee || data.fee || 1500,
               students: data.students || [],
-              createdAt: data.createdAt || null, // 🌟 Fetched createdAt field
+              createdAt: data.createdAt || null,
             });
           });
 
@@ -474,6 +490,7 @@ export default function AnalyticsPage() {
           }
           setLoading(false);
         } else {
+          // Fallback check on root classes collection if needed
           getDocs(collection(db, 'classes'))
             .then((rootSnap) => {
               if (!rootSnap.empty) {
@@ -486,7 +503,7 @@ export default function AnalyticsPage() {
                     code: data.code || '',
                     monthlyFee: data.monthlyFee || data.fee || 1500,
                     students: data.students || [],
-                    createdAt: data.createdAt || null, // 🌟 Fetched createdAt field
+                    createdAt: data.createdAt || null,
                   });
                 });
 
@@ -513,7 +530,7 @@ export default function AnalyticsPage() {
     );
 
     return () => unsubscribe();
-  }, [activeUserId]);
+  }, [userEmail]);
 
   // Ensure selectedClassId stays valid
   useEffect(() => {
@@ -525,10 +542,10 @@ export default function AnalyticsPage() {
     }
   }, [classesList, selectedClassId]);
 
-  // 2. FIRESTORE ATTENDANCE & ACCURATE FEE CALCULATOR
+  // 2. FIRESTORE ATTENDANCE & ACCURATE FEE CALCULATOR BY LOGGED-IN USER EMAIL
   useEffect(() => {
     const calculateAnalytics = async () => {
-      if (!selectedClassId || !selectedMonthKey) return;
+      if (!selectedClassId || !selectedMonthKey || !userEmail) return;
 
       setFetchingMetrics(true);
 
@@ -542,8 +559,8 @@ export default function AnalyticsPage() {
 
         let hasDataForSelectedDate = false;
 
-        // A. ATTENDANCE COLLECTION PROCESSING
-        let attendanceRef = collection(db, 'users', activeUserId, 'attendance');
+        // A. ATTENDANCE COLLECTION PROCESSING FOR LOGGED-IN USER
+        let attendanceRef = collection(db, 'users', userEmail, 'attendance');
         let attendanceSnapshot = await getDocs(attendanceRef);
 
         if (attendanceSnapshot.empty) {
@@ -637,7 +654,7 @@ export default function AnalyticsPage() {
         });
         setTrendDataPoints(calculatedTrend);
 
-        // B. DEEP FIRESTORE FEE PARSER
+        // B. FIRESTORE FEE PARSER FOR LOGGED-IN USER
         let paidStudentsCount = 0;
         let monthTotalRevenue = 0;
         let dailyRevenue = 0;
@@ -647,7 +664,7 @@ export default function AnalyticsPage() {
 
         const targetFeeDocId = `${selectedClassId}_${selectedMonthKey}`;
 
-        let feeDocRef = doc(db, 'users', activeUserId, 'fees', targetFeeDocId);
+        let feeDocRef = doc(db, 'users', userEmail, 'fees', targetFeeDocId);
         let feeDocSnap = await getDoc(feeDocRef);
 
         if (!feeDocSnap.exists()) {
@@ -794,7 +811,7 @@ export default function AnalyticsPage() {
     selectedDate,
     analyticsType,
     classesList,
-    activeUserId,
+    userEmail,
   ]);
 
   const filteredFeeStudents = useMemo(() => {

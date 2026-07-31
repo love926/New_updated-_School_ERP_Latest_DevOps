@@ -15,28 +15,44 @@ import {
   X,
   Layers,
   DoorOpen,
-  ChevronRight, // <-- Jani ye naya import add kiya hai
+  ChevronRight,
+  HelpCircle,
+  FileText,
+  PieChart,
+  AlertCircle,
+  Wallet
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useLayoutEffect } from 'react';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: Home, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Dashboard', href: '/dashboard', icon: Home, color: 'from-blue-500 to-cyan-500' },
   { name: 'Classes', href: '/departments', icon: Building2, color: 'from-blue-500 to-cyan-500' },
   { name: 'Attendance', href: '/attendance', icon: Layers, color: 'from-blue-500 to-cyan-500' },
-  { name: 'Fees', href: '/fees', icon: Clock, color: 'from-blue-500 to-cyan-500' },
-  { name: 'Quiz Management', href: '/quiz', icon: Clock, color: 'from-blue-500 to-cyan-500' },
-  { name: 'Reports', href: '/reports', icon: Clock, color: 'from-blue-500 to-cyan-500' },
-  { name: 'Analytics', href: '/analytics', icon: Clock, color: 'from-blue-500 to-cyan-500' },
-  { name: 'Notes & Library', href: '/notes', icon: Clock, color: 'from-blue-500 to-cyan-500' }, // Fixed href here
-  { name: 'Alerts And Notification', href: '/alerts', icon: Clock, color: 'from-blue-500 to-cyan-500' }, // Fixed href here
-  { name: 'Settings', href: '/settings', icon: Clock, color: 'from-blue-500 to-cyan-500' }, // Fixed href here
-  
+  { name: 'Fees', href: '/fees', icon: Wallet, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Quiz Management', href: '/quiz', icon: HelpCircle, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Reports', href: '/reports', icon: FileText, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Analytics', href: '/analytics', icon: PieChart, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Notes & Library', href: '/notes', icon: BookOpen, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Alerts And Notification', href: '/alerts', icon: AlertCircle, color: 'from-blue-500 to-cyan-500' },
+  { name: 'Settings', href: '/settings', icon: Settings, color: 'from-blue-500 to-cyan-500' },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { isDarkMode, toggleDarkMode } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Synchronize HTML root element dark class directly on mount or state change
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -67,9 +83,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-pink-500/5 pointer-events-none" />
 
-        {/* Header */}
+        {/* Header - Logo click navigation fix */}
         <div className="relative flex h-16 items-center justify-between border-b border-white/10 dark:border-gray-700/30 px-6 backdrop-blur-xl">
-          <Link to="/" className="flex items-center gap-3 group">
+          <Link to="/dashboard" className="flex items-center gap-3 group">
             <div className="relative p-2 rounded-2xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 backdrop-blur-sm border border-white/20 group-hover:scale-110 transition-all duration-300 group-hover:shadow-lg group-hover:shadow-blue-500/20">
               <img src="/logo.png" alt="Curriflex Logo" className="h-8 w-8 object-contain" />
               <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

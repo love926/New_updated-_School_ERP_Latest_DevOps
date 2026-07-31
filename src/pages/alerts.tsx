@@ -15,6 +15,7 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
+import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Bell,
@@ -37,7 +38,8 @@ import {
   Calendar,
   Sparkles,
   MessageSquare,
-  Loader2
+  Loader2,
+  ArrowLeft
 } from 'lucide-react';
 
 // ==========================================
@@ -54,9 +56,7 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-
-// Current Admin User ID from Firestore database
-const CURRENT_USER_ID = "X1Q76ib1XXPWcP3FSQPLLaTzl83";
+const auth = getAuth(app);
 
 // ==========================================
 // TYPES & INTERFACES
@@ -114,6 +114,9 @@ const triggerWhatsAppCloudAPI = async (recipientPhone: string, title: string, me
 export default function NotificationsPage() {
   const location = useLocation();
 
+  // Auth User State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
   // Theme & State
   const [isDark, setIsDark] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -136,23 +139,46 @@ export default function NotificationsPage() {
   const [recipientPhone, setRecipientPhone] = useState('');
 
   // ------------------------------------------
-  // 3. FETCH LIVE DATA FROM FIRESTORE
+  // AUTHENTICATION & MULTI-USER DATA FETCHING
   // ------------------------------------------
-
-  // A. Fetch Trigger Alert Settings
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        setNotifications([]);
+        setClassesList([]);
+        setTriggerAlertsSettings(null);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Get dynamic user key (matching Fee Page logic: Email or UID)
+  const getUserKey = (): string | null => {
+    if (!currentUser) return null;
+    return currentUser.email || currentUser.uid;
+  };
+
+  // A. Fetch Trigger Alert Settings Dynamically
+  useEffect(() => {
+    const userKey = getUserKey();
+    if (!userKey) return;
+
     const fetchSettings = async () => {
       try {
-        const settingsRef = doc(db, 'settings', 'trigger_alerts');
-        const docSnap = await getDoc(settingsRef);
-
-        if (docSnap.exists()) {
-          setTriggerAlertsSettings(docSnap.data() as TriggerAlertSettings);
+        const userSettingsRef = doc(db, `users/${userKey}/settings`, 'trigger_alerts');
+        const userSnap = await getDoc(userSettingsRef);
+        
+        if (userSnap.exists()) {
+          setTriggerAlertsSettings(userSnap.data() as TriggerAlertSettings);
         } else {
-          const userSettingsRef = doc(db, `users/${CURRENT_USER_ID}/settings`, 'trigger_alerts');
-          const userSnap = await getDoc(userSettingsRef);
-          if (userSnap.exists()) {
-            setTriggerAlertsSettings(userSnap.data() as TriggerAlertSettings);
+          // Fallback check globally
+          const globalSettingsRef = doc(db, 'settings', 'trigger_alerts');
+          const globalSnap = await getDoc(globalSettingsRef);
+          if (globalSnap.exists()) {
+            setTriggerAlertsSettings(globalSnap.data() as TriggerAlertSettings);
           }
         }
       } catch (err) {
@@ -161,13 +187,16 @@ export default function NotificationsPage() {
     };
 
     fetchSettings();
-  }, []);
+  }, [currentUser]);
 
-  // B. Fetch Dynamic Classes List (`users/{userId}/classes`)
+  // B. Fetch Dynamic Classes List (`users/{userKey}/classes`)
   useEffect(() => {
+    const userKey = getUserKey();
+    if (!userKey) return;
+
     const fetchClasses = async () => {
       try {
-        const classesRef = collection(db, `users/${CURRENT_USER_ID}/classes`);
+        const classesRef = collection(db, `users/${userKey}/classes`);
         const snapshot = await getDocs(classesRef);
         
         const fetchedClasses: DynamicClass[] = snapshot.docs.map(doc => ({
@@ -191,12 +220,18 @@ export default function NotificationsPage() {
     };
 
     fetchClasses();
-  }, []);
+  }, [currentUser]);
 
-  // C. Real-time Notifications Listener (`users/{userId}/notifications`)
+  // C. Real-time Notifications Listener (`users/{userKey}/notifications`)
   useEffect(() => {
+    const userKey = getUserKey();
+    if (!userKey) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const notifCollectionRef = collection(db, `users/${CURRENT_USER_ID}/notifications`);
+    const notifCollectionRef = collection(db, `users/${userKey}/notifications`);
     const q = query(notifCollectionRef, orderBy('createdAt', 'desc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -233,7 +268,7 @@ export default function NotificationsPage() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   // ------------------------------------------
   // COMPUTED VALUES
@@ -264,8 +299,11 @@ export default function NotificationsPage() {
   // FIRESTORE ACTIONS
   // ------------------------------------------
   const handleMarkAsRead = async (id: string) => {
+    const userKey = getUserKey();
+    if (!userKey) return;
+
     try {
-      const docRef = doc(db, `users/${CURRENT_USER_ID}/notifications`, id);
+      const docRef = doc(db, `users/${userKey}/notifications`, id);
       await updateDoc(docRef, { isRead: true });
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -273,12 +311,15 @@ export default function NotificationsPage() {
   };
 
   const handleMarkAllRead = async () => {
+    const userKey = getUserKey();
+    if (!userKey) return;
+
     try {
       const batch = writeBatch(db);
       const unreadItems = notifications.filter(n => !n.isRead);
 
       unreadItems.forEach(item => {
-        const docRef = doc(db, `users/${CURRENT_USER_ID}/notifications`, item.id);
+        const docRef = doc(db, `users/${userKey}/notifications`, item.id);
         batch.update(docRef, { isRead: true });
       });
 
@@ -289,8 +330,11 @@ export default function NotificationsPage() {
   };
 
   const handleDeleteNotification = async (id: string) => {
+    const userKey = getUserKey();
+    if (!userKey) return;
+
     try {
-      const docRef = doc(db, `users/${CURRENT_USER_ID}/notifications`, id);
+      const docRef = doc(db, `users/${userKey}/notifications`, id);
       await deleteDoc(docRef);
     } catch (error) {
       console.error("Error deleting notification:", error);
@@ -299,7 +343,8 @@ export default function NotificationsPage() {
 
   const handleSendAlertSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !newMessage) return;
+    const userKey = getUserKey();
+    if (!newTitle || !newMessage || !userKey) return;
 
     setIsSubmitting(true);
 
@@ -310,7 +355,7 @@ export default function NotificationsPage() {
         isWhatsAppSent = true;
       }
 
-      const notifRef = collection(db, `users/${CURRENT_USER_ID}/notifications`);
+      const notifRef = collection(db, `users/${userKey}/notifications`);
       await addDoc(notifRef, {
         title: newTitle,
         message: newMessage,
@@ -349,7 +394,7 @@ export default function NotificationsPage() {
     }
   };
 
-  // Bottom Navbar Options (Alerts Removed Here)
+  // Bottom Navbar Options
   const navigationTabs = [
     { id: "home", label: "Home", icon: Home, href: "/" },
     { id: "classes", label: "Classes", icon: GraduationCap, href: "/departments" },
@@ -364,7 +409,16 @@ export default function NotificationsPage() {
       {/* TOP HEADER */}
       <div className="w-full bg-white/60 dark:bg-[#070b13]/60 backdrop-blur-md sticky top-0 z-40 border-b border-slate-200/50 dark:border-slate-800/50">
         <div className="mx-auto max-w-2xl px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* BACK TO DASHBOARD BUTTON */}
+            <Link
+              to="/dashboard"
+              className="w-9 h-9 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white flex items-center justify-center shadow-md shadow-orange-500/30 transition-all active:scale-95 flex-shrink-0"
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="h-5 w-5 stroke-[2.5]" />
+            </Link>
+
             <div className="relative flex items-center gap-2">
               <h1 className="text-xl font-black tracking-tight">Alerts & Notices</h1>
               {unreadCount > 0 && (

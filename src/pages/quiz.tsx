@@ -8,9 +8,8 @@ import {
 
 // --- FIREBASE IMPORTS ---
 import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
-import { db } from '../lib/firebase';
-
-const USER_ID = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83';
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { db, auth } from '../lib/firebase';
 
 // Interfaces
 interface StudentScore {
@@ -38,18 +37,6 @@ interface ClassItem {
   classCode: string;
   students: { id: string; rollNo?: number | string; name: string; gender: 'Male' | 'Female' }[];
 }
-
-// Default Students sorted by Roll Number
-const DEFAULT_STUDENTS = [
-  { id: 'st-1', rollNo: 1, name: 'Ali Tahir', gender: 'Male' as const },
-  { id: 'st-2', rollNo: 2, name: 'Khalil Tahir', gender: 'Male' as const },
-  { id: 'st-3', rollNo: 3, name: 'Nabeel Tahir', gender: 'Male' as const },
-  { id: 'st-4', rollNo: 4, name: 'Anees Tahir', gender: 'Male' as const },
-  { id: 'st-5', rollNo: 5, name: 'Kainat Tariq', gender: 'Female' as const },
-  { id: 'st-6', rollNo: 6, name: 'Ateeq Tariq', gender: 'Male' as const },
-  { id: 'st-7', rollNo: 7, name: 'Rohan tariq', gender: 'Male' as const },
-  { id: 'st-8', rollNo: 8, name: 'Komel Tariq', gender: 'Female' as const },
-];
 
 // Helper: Get Rolling Months (Current & Previous)
 const getRollingMonths = () => {
@@ -147,6 +134,8 @@ export default function QuizManagementPage() {
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
@@ -166,11 +155,11 @@ export default function QuizManagementPage() {
   const [totalMarks, setTotalMarks] = useState<number>(10);
   const [studentScores, setStudentScores] = useState<StudentScore[]>([]);
 
-  // Form Filters & Pagination (5 Students per page)
+  // Form Filters & Pagination
   const [genderFilter, setGenderFilter] = useState<'All' | 'Male' | 'Female'>('All');
   const [belowThreshold, setBelowThreshold] = useState<string>('');
   const [formPage, setFormPage] = useState(1);
-  const FORM_PAGE_SIZE = 5; // Exactly 5 students per page in form
+  const FORM_PAGE_SIZE = 5;
   const [isSaving, setIsSaving] = useState(false);
 
   // Modal State for Viewing Full Quiz Details
@@ -190,18 +179,32 @@ export default function QuizManagementPage() {
     }, 3500);
   };
 
-  // Fetch Classes
+  // 1. Auth Listener to get Logged-In User Email Dynamically
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (!user) {
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Fetch Classes dynamically based on Logged-In User Email
+  useEffect(() => {
+    if (!currentUser?.email) return;
+
     const fetchClasses = async () => {
       try {
         setLoading(true);
-        const classesRef = collection(db, 'users', USER_ID, 'classes');
+        const userEmail = currentUser.email;
+        const classesRef = collection(db, 'users', userEmail!, 'classes');
         const querySnapshot = await getDocs(classesRef);
         const fetchedClasses: ClassItem[] = [];
 
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          const rawStudents = data.students && data.students.length > 0 ? data.students : DEFAULT_STUDENTS;
+          const rawStudents = (data.students && Array.isArray(data.students)) ? data.students : [];
           
           const sortedStudents = [...rawStudents].sort((a, b) => {
             const rA = Number(a.rollNo) || 0;
@@ -230,19 +233,20 @@ export default function QuizManagementPage() {
     };
 
     fetchClasses();
-  }, []);
+  }, [currentUser]);
 
   const currentClass = useMemo(() => {
     return classes.find((c) => c.id === selectedClassId) || null;
   }, [classes, selectedClassId]);
 
-  // Fetch Quizzes
+  // 3. Fetch Quizzes dynamically for selected class
   useEffect(() => {
-    if (!selectedClassId) return;
+    if (!selectedClassId || !currentUser?.email) return;
 
     const fetchAndCleanupQuizzes = async () => {
       try {
-        const quizzesRef = collection(db, 'users', USER_ID, 'classes', selectedClassId, 'quizzes');
+        const userEmail = currentUser.email;
+        const quizzesRef = collection(db, 'users', userEmail!, 'classes', selectedClassId, 'quizzes');
         const querySnapshot = await getDocs(quizzesRef);
         const fetchedQuizzes: QuizRecord[] = [];
         const allowedMonths = getRollingMonths();
@@ -251,7 +255,7 @@ export default function QuizManagementPage() {
           const quizData = docSnap.data() as QuizRecord;
 
           if (quizData.monthKey && !allowedMonths.includes(quizData.monthKey)) {
-            await deleteDoc(doc(db, 'users', USER_ID, 'classes', selectedClassId, 'quizzes', docSnap.id));
+            await deleteDoc(doc(db, 'users', userEmail!, 'classes', selectedClassId, 'quizzes', docSnap.id));
           } else {
             if (quizData.studentScores) {
               quizData.studentScores.sort((a, b) => (Number(a.rollNo) || 0) - (Number(b.rollNo) || 0));
@@ -270,7 +274,7 @@ export default function QuizManagementPage() {
     fetchAndCleanupQuizzes();
     setIsCreatingQuiz(false);
     setEditingQuizId(null);
-  }, [selectedClassId]);
+  }, [selectedClassId, currentUser]);
 
   // Filter quizzes by selected month
   const filteredQuizzesByMonth = useMemo(() => {
@@ -287,13 +291,13 @@ export default function QuizManagementPage() {
     setFormPage(1);
     setEditingQuizId(null);
 
-    const initialScores: StudentScore[] = [...currentClass.students]
+    const initialScores: StudentScore[] = [...(currentClass.students || [])]
       .sort((a, b) => (Number(a.rollNo) || 0) - (Number(b.rollNo) || 0))
       .map((st, idx) => ({
         id: st.id,
         rollNo: st.rollNo || idx + 1,
         name: st.name,
-        gender: st.gender,
+        gender: st.gender || 'Male',
         marksObtained: '',
       }));
 
@@ -357,10 +361,11 @@ export default function QuizManagementPage() {
   // Save / Update Quiz
   const handleSaveQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quizTopic.trim() || !selectedClassId) return;
+    if (!quizTopic.trim() || !selectedClassId || !currentUser?.email) return;
 
     setIsSaving(true);
     try {
+      const userEmail = currentUser.email;
       const now = new Date();
       const todayDate = now.toLocaleDateString('en-US', {
         month: 'short',
@@ -390,7 +395,7 @@ export default function QuizManagementPage() {
         averageScore: avg,
       };
 
-      const quizDocRef = doc(db, 'users', USER_ID, 'classes', selectedClassId, 'quizzes', quizId);
+      const quizDocRef = doc(db, 'users', userEmail, 'classes', selectedClassId, 'quizzes', quizId);
       await setDoc(quizDocRef, newQuizData, { merge: true });
 
       if (editingQuizId) {
@@ -414,10 +419,12 @@ export default function QuizManagementPage() {
   // Delete Quiz
   const handleDeleteQuiz = async (quizId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!currentUser?.email) return;
     if (!window.confirm("Are you sure you want to delete this quiz, mere jaan?")) return;
 
     try {
-      const quizDocRef = doc(db, 'users', USER_ID, 'classes', selectedClassId, 'quizzes', quizId);
+      const userEmail = currentUser.email;
+      const quizDocRef = doc(db, 'users', userEmail, 'classes', selectedClassId, 'quizzes', quizId);
       await deleteDoc(quizDocRef);
       setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
       showCenterNotification("🗑️ Quiz Record Deleted Successfully!");
@@ -460,7 +467,7 @@ export default function QuizManagementPage() {
   return (
     <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070b13] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-28 ${isDark ? 'dark' : ''}`}>
 
-      {/* BEAUTIFUL ADAPTIVE GLOWING NOTIFICATION (WHITE IN DAY MODE) */}
+      {/* BEAUTIFUL ADAPTIVE GLOWING NOTIFICATION */}
       {centerNotification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/70 backdrop-blur-md animate-in fade-in zoom-in duration-300 pointer-events-none">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_15px_40px_rgba(249,115,22,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.6)] space-y-3 transform animate-bounce">
@@ -731,7 +738,7 @@ export default function QuizManagementPage() {
                       </div>
                     )}
 
-                    {/* FORM PAGINATION CONTROLS (5 STUDENTS PER PAGE) */}
+                    {/* FORM PAGINATION CONTROLS */}
                     {totalFormPages > 1 && (
                       <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
                         <button

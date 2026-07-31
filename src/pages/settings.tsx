@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
   Settings,
@@ -26,9 +26,10 @@ import {
   UserCheck,
   AlertTriangle,
   X,
-  AlertCircle
+  AlertCircle,
+  ArrowLeft
 } from 'lucide-react';
-import { doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, deleteDoc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 
 // ✅ FIREBASE IMPORTS
@@ -60,6 +61,7 @@ const navigationTabs = [
 
 export default function SettingsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Layout & Navigation States
@@ -118,9 +120,9 @@ export default function SettingsPage() {
     teacherRemarksRequired: true
   });
 
-  // 🎯 FIRESTORE DOC REFERENCE
+  // 🎯 FIRESTORE DOC REFERENCE FOR PROFILE DATA (SUBCOLLECTION OR MAIN USER DOC)
   const getSettingsDocRef = (uid?: string) => {
-    const userId = uid || auth?.currentUser?.uid || 'X1Q76ib1XXPwCp3FSQPLLaTzL83';
+    const userId = uid || auth?.currentUser?.uid || 'vyYKFEuB2lMSAuMOAJIPrCXK2ca2';
     return doc(db, 'users', userId, 'settings', 'profile_data');
   };
 
@@ -132,14 +134,45 @@ export default function SettingsPage() {
     }, 3200);
   };
 
-  // 🔄 REALTIME FIRESTORE LISTENER
+  // 🔄 REALTIME FIRESTORE LISTENER (WITH AUTO-FILL FROM USERS DOCUMENT)
   useEffect(() => {
     let unsubscribeSnapshot: () => void = () => {};
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
-      const userId = user ? user.uid : 'X1Q76ib1XXPwCp3FSQPLLaTzL83';
-      const settingsRef = doc(db, 'users', userId, 'settings', 'profile_data');
+
+      // Current User Identification
+      const userEmail = user?.email || 'admin@gmail.com';
+      const userId = user ? user.uid : 'vyYKFEuB2lMSAuMOAJIPrCXK2ca2';
+
+      // 1. First fetch Main User Document Data from `users/{userEmail}` or `users/{userId}` for Dynamic Auto-fill
+      let mainUserData: any = null;
+      try {
+        const userByEmailDoc = await getDoc(doc(db, 'users', userEmail));
+        if (userByEmailDoc.exists()) {
+          mainUserData = userByEmailDoc.data();
+        } else {
+          const userByIdDoc = await getDoc(doc(db, 'users', userId));
+          if (userByIdDoc.exists()) {
+            mainUserData = userByIdDoc.data();
+          }
+        }
+      } catch (err) {
+        console.error('Error loading main user profile:', err);
+      }
+
+      // Default values fetched directly from Firestore Database
+      const defaultProfile: ProfileData = {
+        name: mainUserData?.teacherName || mainUserData?.name || '',
+        role: mainUserData?.role || '',
+        schoolName: mainUserData?.schoolName || mainUserData?.academyName || '',
+        email: mainUserData?.email || userEmail,
+        phone: mainUserData?.whatsappNumber || mainUserData?.phone || '+92 ',
+        avatarUrl: mainUserData?.profileImage || mainUserData?.avatarUrl || ''
+      };
+
+      // 2. Realtime listener for saved settings in subcollection
+      const settingsRef = doc(db, 'users', userEmail, 'settings', 'profile_data');
 
       if (unsubscribeSnapshot) unsubscribeSnapshot();
 
@@ -153,6 +186,8 @@ export default function SettingsPage() {
               setHasProfile(true);
               setIsEditing(false);
             } else {
+              // Auto fill dynamic record if no explicit profile saved yet
+              setProfile(defaultProfile);
               setHasProfile(false);
               setIsEditing(true);
             }
@@ -161,6 +196,8 @@ export default function SettingsPage() {
             if (data.thresholds) setThresholds(data.thresholds);
             if (data.reportMetrics) setReportMetrics(data.reportMetrics);
           } else {
+            // Document doesn't exist yet: Auto fill dynamic fields from database!
+            setProfile(defaultProfile);
             setHasProfile(false);
             setIsEditing(true);
           }
@@ -168,6 +205,9 @@ export default function SettingsPage() {
         },
         (error) => {
           console.error('Firestore Sub-collection Error:', error);
+          setProfile(defaultProfile);
+          setHasProfile(false);
+          setIsEditing(true);
           setLoading(false);
         }
       );
@@ -211,7 +251,8 @@ export default function SettingsPage() {
     if (!isPhoneValid) return triggerPopup('Phone Incomplete', 'Enter complete 10-digit number.', 'warning');
 
     try {
-      const settingsRef = getSettingsDocRef();
+      const userDocId = auth?.currentUser?.email || profile.email || 'admin@gmail.com';
+      const settingsRef = doc(db, 'users', userDocId, 'settings', 'profile_data');
       await setDoc(settingsRef, { profile, updatedAt: new Date().toISOString() }, { merge: true });
       setIsEditing(false);
       setHasProfile(true);
@@ -226,8 +267,8 @@ export default function SettingsPage() {
   const handleConfirmDelete = async () => {
     setShowDeleteModal(false);
     try {
-      await deleteDoc(getSettingsDocRef());
-      setProfile({ name: '', role: '', schoolName: '', email: '', phone: '+92 ', avatarUrl: '' });
+      const userDocId = auth?.currentUser?.email || profile.email || 'admin@gmail.com';
+      await deleteDoc(doc(db, 'users', userDocId, 'settings', 'profile_data'));
       setHasProfile(false);
       setIsEditing(true);
       triggerPopup('Profile Deleted!', 'Profile removed from database.', 'delete');
@@ -267,18 +308,29 @@ export default function SettingsPage() {
 
       {/* 🌟 1. MINIMAL PREMIUM UTILITY HEADER */}
       <div className="w-full bg-white/40 dark:bg-[#070b13]/40 backdrop-blur-sm border-b border-slate-200/40 dark:border-slate-900/40 sticky top-0 z-40 transition-colors">
-        <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8 gap-2">
 
-          {/* Quick Search */}
-          <div className="relative w-48 sm:w-64">
-            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Quick search..."
-              className="w-full rounded-xl border border-slate-200/60 bg-white/60 py-1.5 pl-9 pr-4 text-xs outline-none transition-all focus:border-orange-500 focus:bg-white dark:border-slate-800 dark:bg-[#0c1222] dark:focus:bg-[#0c1222] dark:text-white"
-            />
+          {/* 🔙 BACK BUTTON & SEARCH */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(-1)}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/30 hover:bg-orange-600 active:scale-90 transition-all cursor-pointer"
+              title="Go Back"
+            >
+              <ArrowLeft className="h-5 w-5 stroke-[2.5]" />
+            </button>
+
+            {/* Quick Search */}
+            <div className="relative w-36 sm:w-64">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Quick search..."
+                className="w-full rounded-xl border border-slate-200/60 bg-white/60 py-1.5 pl-9 pr-4 text-xs outline-none transition-all focus:border-orange-500 focus:bg-white dark:border-slate-800 dark:bg-[#0c1222] dark:focus:bg-[#0c1222] dark:text-white"
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-3">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,11 +24,14 @@ import {
   Loader2,
   Plus,
   HelpCircle,
-  UserPlus
+  UserPlus,
+  LogOut,
+  ThumbsUp
 } from 'lucide-react';
 
 // Firebase Firestore & Auth Imports
 import { collection, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 
 // Fallback User ID
@@ -62,9 +65,39 @@ const normalizeDate = (dateStr: string) => {
 
 export default function Dashboard() {
   const { departments } = useApp();
-  const [isDark, setIsDark] = useState(false);
+  const navigate = useNavigate();
+
+  // Logout Flow States
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // 1. PERSISTENT THEME INITIALIZATION
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) {
+        return savedTheme === 'dark';
+      }
+      return document.documentElement.classList.contains('dark');
+    }
+    return false;
+  });
+
   const [activeTab, setActiveTab] = useState('home');
   const [loading, setLoading] = useState(true);
+
+  // 2. KEEP LOCALSTORAGE AND HTML ROOT SYNCED WITH THEME STATE
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
 
   // Profile Data State
   const [profileData, setProfileData] = useState<{ name: string; avatarUrl: string }>({
@@ -94,7 +127,7 @@ export default function Dashboard() {
     { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
   ];
 
-  // Quick Access Configurations (Assignments & Exams removed)
+  // Quick Access Configurations
   const quickAccessItems = [
     { title: 'Attendance', icon: Users, color: 'bg-white dark:bg-[#0c1222] text-emerald-600 dark:text-emerald-400 border-emerald-400/80 dark:border-emerald-500/50 hover:shadow-[0_0_20px_rgba(16,185,129,0.35)]', href: '/attendance' },
     { title: 'Fees', icon: Wallet, color: 'bg-white dark:bg-[#0c1222] text-purple-600 dark:text-purple-400 border-purple-400/80 dark:border-purple-500/50 hover:shadow-[0_0_20px_rgba(168,85,247,0.35)]', href: '/fees' },
@@ -106,7 +139,7 @@ export default function Dashboard() {
     { title: 'Alerts', icon: AlertCircle, color: 'bg-white dark:bg-[#0c1222] text-rose-600 dark:text-rose-400 border-rose-400/80 dark:border-rose-500/50 hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]', href: '/alerts' },
   ];
 
-  // 1. FETCH USER PROFILE DATA FROM FIRESTORE (users/{userId}/settings/profile_data)
+  // 1. FETCH USER PROFILE DATA FROM FIRESTORE
   useEffect(() => {
     const profileDocRef = doc(db, 'users', activeUserId, 'settings', 'profile_data');
     const unsubscribeProfile = onSnapshot(profileDocRef, (docSnap) => {
@@ -285,6 +318,24 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [activeUserId, todayStr, monthKeyStr]);
 
+  // Handle Firebase Sign Out Execution
+  const handleConfirmLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await signOut(auth);
+      setShowConfirmModal(false);
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+    }
+  };
+
+  const handleRedirectToLogin = () => {
+    setShowSuccessModal(false);
+    navigate('/login');
+  };
+
   // Dynamic Metrics Array
   const overviewMetrics = [
     { title: 'Total Active Classes', value: String(metricsData.totalClasses), change: 'Live from DB', positive: true, icon: Flame, bg: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400', glow: 'hover:border-indigo-500/80 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]' },
@@ -311,7 +362,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             {/* Smooth Light/Dark Toggle Pill */}
             <button 
-              onClick={() => setIsDark(!isDark)}
+              onClick={() => setIsDark((prev) => !prev)}
               className="flex h-7 w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30"
             >
               <div className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
@@ -319,7 +370,7 @@ export default function Dashboard() {
               </div>
             </button>
 
-            {/* Notification Bell Badge (Navigates to /alerts) */}
+            {/* Notification Bell Badge */}
             <Link 
               to="/alerts" 
               className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-[#0c1222] transition-all hover:scale-105 active:scale-95"
@@ -330,7 +381,17 @@ export default function Dashboard() {
               </span>
             </Link>
 
-            {/* Dynamic Profile Avatar (CLICKABLE -> Direct Navigation to /settings Profile Page) */}
+            {/* PREMIUM GLOWING LOGOUT BUTTON */}
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              className="group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold text-xs transition-all duration-300 hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-[0_0_15px_rgba(244,63,94,0.25)] hover:shadow-[0_0_22px_rgba(244,63,94,0.6)] active:scale-95"
+              title="Logout from system"
+            >
+              <LogOut className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+
+            {/* Dynamic Profile Avatar */}
             <Link
               to="/settings"
               title="View Profile / Settings"
@@ -349,7 +410,7 @@ export default function Dashboard() {
       {/* CORE WORKSPACE MAIN CONTENT */}
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-8 animate-in fade-in duration-500">
         
-        {/* BANNER GREETING ROW (DYNAMIC NAME FROM FIRESTORE) */}
+        {/* BANNER GREETING ROW */}
         <div className="space-y-0.5">
           <h2 className="text-xl font-extrabold tracking-tight md:text-2xl flex items-center gap-2">
             Welcome back, <span className="text-slate-950 dark:text-white">{profileData.name}</span>! 
@@ -359,7 +420,7 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* HERO BANNER - NO INNER COLOR TINT, ONLY CLEAN OUTSIDE GLOWING BORDER */}
+        {/* HERO BANNER */}
         <div className="relative rounded-3xl bg-white dark:bg-[#0c1222] p-6 md:p-8 border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)] transition-all duration-300">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
             <div className="max-w-xl space-y-3">
@@ -380,7 +441,6 @@ export default function Dashboard() {
               </p>
               
               <div className="pt-1 flex flex-wrap gap-3">
-                {/* ATTENDANCE BUTTON */}
                 <Button asChild size="sm" className="rounded-xl bg-orange-500 hover:bg-orange-600 font-bold text-white shadow-md shadow-orange-500/30 hover:scale-[1.02] active:scale-95 transition-all duration-200 px-4 py-4 text-xs">
                   <Link to="/attendance" className="flex items-center gap-1.5">
                     Attendance
@@ -388,7 +448,6 @@ export default function Dashboard() {
                   </Link>
                 </Button>
 
-                {/* CONFIGURE SETTINGS BUTTON */}
                 <Button asChild variant="outline" size="sm" className="rounded-xl border border-slate-200 bg-white font-bold text-slate-700 hover:bg-slate-50 shadow-sm text-xs px-4 py-4 dark:border-slate-800 dark:bg-[#070b13] dark:text-slate-300 dark:hover:bg-[#0c1222]">
                   <Link to="/settings">
                     Configure Settings
@@ -397,7 +456,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Outside Border Glow Box */}
             <div className="hidden md:flex items-center justify-center w-52 h-36 bg-white dark:bg-[#070b13] border-2 border-orange-500/50 rounded-2xl shadow-[0_0_15px_rgba(249,115,22,0.25)] group transition-all hover:shadow-[0_0_25px_rgba(249,115,22,0.4)]">
               <div className="text-center p-4 space-y-1.5">
                 <div className="mx-auto w-10 h-10 rounded-xl bg-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/30 transition-transform duration-300 group-hover:scale-110">
@@ -412,7 +470,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* SECTION 1: QUICK ACCESS PANEL (OUTSIDE GLOW ONLY) */}
+        {/* SECTION 1: QUICK ACCESS PANEL */}
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black tracking-wider text-slate-400 dark:text-slate-500 uppercase">Quick Access</h3>
@@ -562,6 +620,70 @@ export default function Dashboard() {
           })}
         </nav>
       </div>
+
+      {/* 1. PREMIUM LOGOUT CONFIRMATION MODAL */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-xs rounded-3xl bg-white dark:bg-[#0c1222] p-6 shadow-[0_0_35px_rgba(244,63,94,0.3)] border border-rose-500/30 text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 border border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+              <LogOut className="h-8 w-8" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                Oh no! You&apos;re leaving...
+              </h3>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mt-1">
+                Are you sure?
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                disabled={isLoggingOut}
+                className="w-full rounded-2xl bg-red-600 py-3 text-xs font-black text-white shadow-md shadow-red-500/30 transition-all hover:bg-red-700 active:scale-95 disabled:opacity-50"
+              >
+                Nah, Just Kidding
+              </button>
+              <button
+                onClick={handleConfirmLogout}
+                disabled={isLoggingOut}
+                className="w-full rounded-2xl border-2 border-red-500/80 bg-transparent py-2.5 text-xs font-black text-red-600 dark:text-red-400 transition-all hover:bg-red-50 dark:hover:bg-red-950/30 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isLoggingOut && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Yes, Log Me Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. PREMIUM LOGOUT SUCCESS NOTIFICATION MODAL */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-xs rounded-3xl bg-white dark:bg-[#0c1222] p-6 shadow-[0_0_35px_rgba(34,197,94,0.3)] border border-emerald-500/30 text-center space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white shadow-inner">
+              <ThumbsUp className="h-8 w-8 fill-current" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white leading-snug">
+                You&apos;ve successfully Logged out.
+              </h3>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={handleRedirectToLogin}
+                className="w-full rounded-2xl bg-red-600 py-3 text-xs font-black text-white shadow-md shadow-red-500/30 transition-all hover:bg-red-700 active:scale-95"
+              >
+                Back to Login
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -62,7 +62,7 @@ interface ClassItem {
   name: string;
   code: string;
   monthlyFee: string;
-  createdAt?: string; // 👈 Date timestamp field type added
+  createdAt?: string;
   students: Student[];
 }
 
@@ -78,7 +78,7 @@ export default function Classes() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const [isDark, setIsDark] = useState(false);
   const [activeTab, setActiveTab] = useState('classes');
@@ -220,11 +220,21 @@ export default function Classes() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch Realtime Classes from Firestore
-  useEffect(() => {
-    const userId = currentUser ? currentUser.uid : 'test_user';
+  // Helper function to resolve exact user doc path via Email or UID fallback
+  const getUserDocId = (user: User | null): string => {
+    if (!user) return 'test_user';
+    return user.email ? user.email.toLowerCase().trim() : user.uid;
+  };
 
-    const userClassesRef = collection(db, 'users', userId, 'classes');
+  // 2. Fetch Realtime Classes from Firestore (Scoped exclusively by User Email)
+  useEffect(() => {
+    if (!currentUser) {
+      setClassList([]);
+      return;
+    }
+
+    const userDocId = getUserDocId(currentUser);
+    const userClassesRef = collection(db, 'users', userDocId, 'classes');
     
     const unsubscribe = onSnapshot(userClassesRef, (snapshot) => {
       const fetchedClasses: ClassItem[] = snapshot.docs.map((docSnap) => ({
@@ -237,6 +247,8 @@ export default function Classes() {
       );
 
       setClassList(fetchedClasses);
+    }, (error) => {
+      console.error("Firestore Listen Error:", error);
     });
 
     return () => unsubscribe();
@@ -287,19 +299,19 @@ export default function Classes() {
     return sortedAndFilteredStudents.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [sortedAndFilteredStudents, currentPage]);
 
-  // CREATE CLASS FUNCTION WITH createdAt TIMESTAMP
+  // CREATE CLASS FUNCTION
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!classNameInput || !classCodeInput) return;
+    if (!classNameInput || !classCodeInput || !currentUser) return;
 
     try {
-      const userId = currentUser ? currentUser.uid : 'test_user';
-      const userClassesRef = collection(db, 'users', userId, 'classes');
+      const userDocId = getUserDocId(currentUser);
+      const userClassesRef = collection(db, 'users', userDocId, 'classes');
       await addDoc(userClassesRef, {
         name: classNameInput,
         code: classCodeInput.toUpperCase(),
         monthlyFee: monthlyFeeInput || '5000',
-        createdAt: new Date().toISOString(), // 👈 YEH LINE ADD KAR DI HAI
+        createdAt: new Date().toISOString(),
         students: []
       });
 
@@ -323,11 +335,11 @@ export default function Classes() {
 
   const handleSaveEditClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingClass) return;
+    if (!editingClass || !currentUser) return;
 
     try {
-      const userId = currentUser ? currentUser.uid : 'test_user';
-      const classDocRef = doc(db, 'users', userId, 'classes', editingClass.id);
+      const userDocId = getUserDocId(currentUser);
+      const classDocRef = doc(db, 'users', userDocId, 'classes', editingClass.id);
       await updateDoc(classDocRef, {
         name: editClassNameInput,
         code: editClassCodeInput.toUpperCase(),
@@ -342,11 +354,11 @@ export default function Classes() {
   };
 
   const handleConfirmDeleteClass = async () => {
-    if (!deleteConfirmClass) return;
+    if (!deleteConfirmClass || !currentUser) return;
 
     try {
-      const userId = currentUser ? currentUser.uid : 'test_user';
-      const classDocRef = doc(db, 'users', userId, 'classes', deleteConfirmClass.id);
+      const userDocId = getUserDocId(currentUser);
+      const classDocRef = doc(db, 'users', userDocId, 'classes', deleteConfirmClass.id);
       await deleteDoc(classDocRef);
       
       const deletedClassName = deleteConfirmClass.name;
@@ -399,11 +411,11 @@ export default function Classes() {
   };
 
   const handleConfirmDeleteStudent = async () => {
-    if (!deleteConfirmStudent || !activeClassId || !currentClass) return;
+    if (!deleteConfirmStudent || !activeClassId || !currentClass || !currentUser) return;
 
     try {
-      const userId = currentUser ? currentUser.uid : 'test_user';
-      const classDocRef = doc(db, 'users', userId, 'classes', activeClassId);
+      const userDocId = getUserDocId(currentUser);
+      const classDocRef = doc(db, 'users', userDocId, 'classes', activeClassId);
       const updatedStudents = (currentClass.students || []).filter((s) => s.id !== deleteConfirmStudent.id);
       await updateDoc(classDocRef, { students: updatedStudents });
       
@@ -417,11 +429,11 @@ export default function Classes() {
 
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeClassId || !fullName || !rollNo || !currentClass) return;
+    if (!activeClassId || !fullName || !rollNo || !currentClass || !currentUser) return;
 
     try {
-      const userId = currentUser ? currentUser.uid : 'test_user';
-      const classDocRef = doc(db, 'users', userId, 'classes', activeClassId);
+      const userDocId = getUserDocId(currentUser);
+      const classDocRef = doc(db, 'users', userDocId, 'classes', activeClassId);
       let updatedStudents = [...(currentClass.students || [])];
 
       const finalFee = studentFeeInput || currentClass.monthlyFee || '5000';
@@ -1318,7 +1330,7 @@ export default function Classes() {
         </div>
       )}
 
-      {/* FLOATING PREMIUM BOTTOM NAVBAR (Exact Match to Design) */}
+      {/* FLOATING PREMIUM BOTTOM NAVBAR */}
       <div className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
         <nav className="pointer-events-auto bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-[2.5rem] shadow-[0_15px_40px_rgba(0,0,0,0.12)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)] px-6 py-3 flex items-center gap-6 sm:gap-10">
           {navigationTabs.map((tab) => {
@@ -1337,15 +1349,15 @@ export default function Classes() {
                 }}
                 className="flex flex-col items-center justify-center relative group outline-none"
               >
-                {/* ICON CONTAINER */}
+                {/* ICON CONTAINER FIXED UNIFORM SIZE */}
                 <div
-                  className={`flex items-center justify-center transition-all duration-300 ${
+                  className={`flex items-center justify-center h-10 w-10 rounded-full transition-all duration-300 ${
                     isActive
-                      ? 'h-12 w-12 rounded-full bg-orange-500 text-white shadow-[0_0_20px_rgba(249,115,22,0.6)] scale-110 -translate-y-1'
-                      : 'h-10 w-10 text-slate-400 group-hover:text-orange-500/80'
+                      ? 'bg-orange-500 text-white shadow-[0_0_20px_rgba(249,115,22,0.6)]'
+                      : 'text-slate-400 group-hover:text-orange-500/80'
                   }`}
                 >
-                  <IconComponent className={isActive ? 'h-6 w-6' : 'h-5 w-5'} />
+                  <IconComponent className="h-5 w-5" />
                 </div>
 
                 {/* LABEL */}

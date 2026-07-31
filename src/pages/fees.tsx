@@ -28,6 +28,7 @@ import {
 
 // Firebase Imports
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -42,7 +43,7 @@ import {
 } from 'firebase/firestore';
 
 // ----------------------------------------------------------------------
-// FIREBASE INITIALIZATION & EXACT DATABASE PATH
+// FIREBASE INITIALIZATION
 // ----------------------------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyAmHi20OGNTeUXjuXO_weF8XKEa3KP7oYE",
@@ -56,9 +57,7 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-
-// EXACT USER ID MATCHING FIRESTORE SCREENSHOTS
-const USER_ID = "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
+const auth = getAuth(app);
 
 interface StudentFeeRecord {
   status: 'PAID' | 'UNPAID' | 'PARTIAL';
@@ -69,7 +68,7 @@ interface StudentFeeRecord {
 
 // Safely extracts YYYY-MM from student joining/admission date
 const getStudentAdmissionMonth = (student: any): string | null => {
-  const rawDate = student.joiningDate || student.admissionDate || student.createdAt || student.date;
+  const rawDate = student?.joiningDate || student?.admissionDate || student?.createdAt || student?.date;
   if (!rawDate) return null;
   try {
     const d = new Date(rawDate);
@@ -82,40 +81,7 @@ const getStudentAdmissionMonth = (student: any): string | null => {
   }
 };
 
-// ----------------------------------------------------------------------
-// Class Creation Date strict priority
-// ----------------------------------------------------------------------
-const getClassCreationMonth = (cls: any): string | null => {
-  if (!cls) return null;
-  const rawDate = cls.createdAt || cls.createdDate || cls.date || cls.createdMonth;
-  
-  if (rawDate) {
-    try {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        return `${y}-${m}`;
-      }
-    } catch {}
-  }
-
-  // Fallback ONLY if Class createdAt is missing: Check student dates
-  const students = cls.students || [];
-  let earliestStudentMonth: string | null = null;
-  students.forEach((st: any) => {
-    const admMonth = getStudentAdmissionMonth(st);
-    if (admMonth) {
-      if (!earliestStudentMonth || admMonth < earliestStudentMonth) {
-        earliestStudentMonth = admMonth;
-      }
-    }
-  });
-
-  return earliestStudentMonth || null;
-};
-
-// Formats raw date string into nice readable format (e.g. 15 Jul 2026)
+// Formats raw date string into readable format (e.g. 15 Jul 2026)
 const formatDisplayDate = (rawDate: string): string => {
   if (!rawDate) return 'N/A';
   try {
@@ -127,10 +93,7 @@ const formatDisplayDate = (rawDate: string): string => {
   }
 };
 
-// ----------------------------------------------------------------------
-// AUTOMATIC MONTH SYSTEM (Always Current Month & Previous Month)
-// Automatically updates when date hits 1st of any new month
-// ----------------------------------------------------------------------
+// AUTOMATIC MONTH SYSTEM (Current Month & Previous Month)
 const getDynamicTwoMonths = () => {
   const now = new Date();
   
@@ -158,7 +121,7 @@ const getMonthOffset = (monthStr: string, offset: number) => {
   return `${y}-${m}`;
 };
 
-// HELPER TO SAFELY EXTRACT STUDENTS IN NUMERICAL SEQUENCE FROM CLASS DATA
+// UNIVERSAL HELPER TO SAFELY EXTRACT STUDENTS FROM ANY DATA FORMAT
 const extractStudentsFromClass = (classData: any): any[] => {
   if (!classData) return [];
   
@@ -171,12 +134,18 @@ const extractStudentsFromClass = (classData: any): any[] => {
     return keys.map(k => classData.students[k]);
   }
   
+  const reservedKeys = ['id', 'name', 'monthlyFee', 'className', 'fee', 'createdAt', 'createdDate', 'date', 'updatedAt'];
   const numericKeys = Object.keys(classData)
-    .filter(k => !isNaN(Number(k)))
-    .sort((a, b) => Number(a) - Number(b));
+    .filter(k => !reservedKeys.includes(k) && typeof classData[k] === 'object' && classData[k] !== null)
+    .sort((a, b) => {
+      const numA = Number(a);
+      const numB = Number(b);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    });
 
   if (numericKeys.length > 0) {
-    return numericKeys.map(k => ({ ...classData[k], _seqKey: Number(k) }));
+    return numericKeys.map(k => ({ ...classData[k], _seqKey: k }));
   }
 
   return [];
@@ -213,7 +182,11 @@ const calculateProratedFee = (student: any, monthlyFee: number) => {
 export default function Fees() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isDark, setIsDark] = useState(true);
+  // Jani yahan default mode false set kar diya hai
+  const [isDark, setIsDark] = useState(false);
+
+  // Dynamic Auth State
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
   // Data States
   const [classes, setClasses] = useState<any[]>([]);
@@ -232,18 +205,49 @@ export default function Fees() {
   const [modalPaidInput, setModalPaidInput] = useState<string>('');
   const [modalPrevDuesInput, setModalPrevDuesInput] = useState<string>('0');
 
+  // Month Options
+  const monthOptions = useMemo(() => getDynamicTwoMonths(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => monthOptions[0]?.value);
+
   // ----------------------------------------------------------------------
-  // 1. FETCH CLASSES FROM FIREBASE WITH SEQUENTIAL SORTING
+  // 0. AUTH LISTENER (DYNAMIC USER ID FOR LOGGED IN EMAIL)
   // ----------------------------------------------------------------------
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // Preference given to email as Firestore document ID matches logged-in user email
+        const userIdentifier = user.email || user.uid;
+        setCurrentUserEmail(userIdentifier);
+      } else {
+        setCurrentUserEmail(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // ----------------------------------------------------------------------
+  // 1. FETCH CLASSES FROM FIREBASE WITH ENHANCED REALTIME LISTENER
+  // ----------------------------------------------------------------------
+  useEffect(() => {
+    if (!currentUserEmail) {
+      setClasses([]);
+      setSelectedClassId('');
+      return;
+    }
+
     setIsLoading(true);
-    const classesRef = collection(db, 'users', USER_ID, 'classes');
+    const classesRef = collection(db, 'users', currentUserEmail, 'classes');
     
     const unsubscribe = onSnapshot(classesRef, (snapshot) => {
       const fetchedClasses = snapshot.docs.map(docSnap => {
         const data = docSnap.data();
+        const className = data.name || data.className || data.title || docSnap.id;
+        const feeValue = data.monthlyFee || data.fee || data.classFee || 0;
+        
         return {
           id: docSnap.id,
+          name: className,
+          monthlyFee: Number(feeValue),
           ...data,
           students: extractStudentsFromClass(data)
         };
@@ -257,9 +261,12 @@ export default function Fees() {
       setClasses(fetchedClasses);
 
       if (fetchedClasses.length > 0) {
-        if (!selectedClassId || !fetchedClasses.some(c => c.id === selectedClassId)) {
-          setSelectedClassId(fetchedClasses[0].id);
-        }
+        setSelectedClassId(prev => {
+          if (prev && fetchedClasses.some(c => c.id === prev)) {
+            return prev;
+          }
+          return fetchedClasses[0].id;
+        });
       } else {
         setSelectedClassId('');
       }
@@ -270,58 +277,28 @@ export default function Fees() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentUserEmail]);
 
   const currentClass = useMemo(() => {
     return classes.find((c) => c.id === selectedClassId) || { students: [], monthlyFee: 0 };
   }, [selectedClassId, classes]);
 
-  // ----------------------------------------------------------------------
-  // DYNAMIC 2-MONTH DROPDOWN LOGIC BOUNDED STRICTLY BY CLASS CREATION DATE
-  // ----------------------------------------------------------------------
-  const monthOptions = useMemo(() => {
-    const baseMonths = getDynamicTwoMonths(); // [CurrentMonth (Index 0), PrevMonth (Index 1)]
-    const creationMonth = getClassCreationMonth(currentClass);
-
-    if (creationMonth) {
-      const filtered = baseMonths.filter(m => m.value >= creationMonth);
-      return filtered.length > 0 ? filtered : [baseMonths[0]];
-    }
-
-    return baseMonths;
-  }, [currentClass]);
-
-  // Default to current Month
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => monthOptions[0]?.value || getDynamicTwoMonths()[0].value);
-
-  // AUTO-SYNC / AUTO-SWITCH MONTH ON 1ST DATE OF EVERY MONTH
-  useEffect(() => {
-    if (monthOptions.length > 0) {
-      const isValidOption = monthOptions.some(m => m.value === selectedMonth);
-      const isLatestMonthSelected = selectedMonth === monthOptions[0].value;
-
-      // If selectedMonth is no longer valid or month rolled over to 1st of month, switch to current month
-      if (!isValidOption || (!isLatestMonthSelected && !monthOptions.some(m => m.value === selectedMonth))) {
-        setSelectedMonth(monthOptions[0].value);
-      }
-    }
-  }, [monthOptions, selectedMonth]);
-
   // SYNC FEE STATUS DIRECTLY TO FIRESTORE 'classes' DOCUMENT
   const syncFeeStatusToClassesDoc = async (classId: string, currentFeeMap: Record<string, StudentFeeRecord>) => {
-    if (!classId) return;
+    if (!classId || !currentUserEmail) return;
     try {
-      const classRef = doc(db, 'users', USER_ID, 'classes', classId);
+      const classRef = doc(db, 'users', currentUserEmail, 'classes', classId);
       const classSnap = await getDoc(classRef);
       if (classSnap.exists()) {
         const classData = classSnap.data();
-        const numericKeys = Object.keys(classData).filter(k => !isNaN(Number(k)));
+        const reservedKeys = ['id', 'name', 'monthlyFee', 'className', 'fee', 'createdAt', 'createdDate', 'date', 'updatedAt'];
+        const numericKeys = Object.keys(classData).filter(k => !reservedKeys.includes(k) && typeof classData[k] === 'object' && classData[k] !== null);
         
         if (numericKeys.length > 0) {
           const updatedData: any = { ...classData };
           numericKeys.forEach(key => {
             const st = classData[key];
-            const record = currentFeeMap[st.id];
+            const record = currentFeeMap[st.id || st.studentId || key];
             let formattedStatus = 'Unpaid';
             if (record?.status === 'PAID') formattedStatus = 'Paid';
             else if (record?.status === 'PARTIAL') formattedStatus = 'Partial';
@@ -334,7 +311,7 @@ export default function Fees() {
           await setDoc(classRef, updatedData, { merge: true });
         } else if (Array.isArray(classData.students)) {
           const updatedStudents = classData.students.map((st: any) => {
-            const record = currentFeeMap[st.id];
+            const record = currentFeeMap[st.id || st.studentId];
             let formattedStatus = 'Unpaid';
             if (record?.status === 'PAID') formattedStatus = 'Paid';
             else if (record?.status === 'PARTIAL') formattedStatus = 'Partial';
@@ -371,15 +348,15 @@ export default function Fees() {
   // 2. REALTIME DUAL FEE LISTENER
   // ----------------------------------------------------------------------
   useEffect(() => {
-    if (!selectedClassId) {
+    if (!selectedClassId || !currentUserEmail) {
       setFeeMap({});
       return;
     }
     setIsLoading(true);
 
-    const currentFeeRef = doc(db, 'users', USER_ID, 'fees', docKey);
+    const currentFeeRef = doc(db, 'users', currentUserEmail, 'fees', docKey);
     const prevMonthStr = getMonthOffset(selectedMonth, -1);
-    const prevFeeRef = doc(db, 'users', USER_ID, 'fees', `${selectedClassId}_${prevMonthStr}`);
+    const prevFeeRef = doc(db, 'users', currentUserEmail, 'fees', `${selectedClassId}_${prevMonthStr}`);
 
     let isMounted = true;
     let prevDataMap: Record<string, any> = {};
@@ -391,19 +368,20 @@ export default function Fees() {
       const activeMap: Record<string, StudentFeeRecord> = {};
 
       eligibleStudentsForMonth.forEach((s: any) => {
+        const studentKey = s.id || s.studentId || s._seqKey;
         let carryOverDues = 0;
 
         const admissionMonth = getStudentAdmissionMonth(s);
         const wasAdmittedBeforeThisMonth = !admissionMonth || prevMonthStr >= admissionMonth;
 
         if (!isOldestMonth && wasAdmittedBeforeThisMonth) {
-          const prevRecord = prevDataMap[s.id];
+          const prevRecord = prevDataMap[studentKey];
           if (prevRecord !== undefined) {
             carryOverDues = Number(prevRecord.remainingDues || 0);
           }
         }
 
-        const existingCurrent = currentDataMap[s.id];
+        const existingCurrent = currentDataMap[studentKey];
         const paidAmt = existingCurrent ? Number(existingCurrent.paidAmount || 0) : 0;
         const totalPayable = monthlyFee + carryOverDues;
         const remaining = Math.max(0, totalPayable - paidAmt);
@@ -415,7 +393,7 @@ export default function Fees() {
           calculatedStatus = 'PARTIAL';
         }
 
-        activeMap[s.id] = {
+        activeMap[studentKey] = {
           status: calculatedStatus,
           paidAmount: paidAmt,
           remainingDues: remaining,
@@ -437,31 +415,18 @@ export default function Fees() {
       recalculateFeeMap();
     });
 
-    // Clean old fee docs older than allowed window
-    const oldestAllowedMonth = monthOptions[monthOptions.length - 1]?.value || selectedMonth;
-    const feesCollection = collection(db, 'users', USER_ID, 'fees');
-    const q = query(feesCollection, where('classId', '==', selectedClassId));
-    getDocs(q).then((allFeeDocs) => {
-      allFeeDocs.forEach((feeDoc) => {
-        const docData = feeDoc.data();
-        if (docData.month && docData.month < oldestAllowedMonth) {
-          deleteDoc(doc(db, 'users', USER_ID, 'fees', feeDoc.id));
-        }
-      });
-    }).catch(err => console.error("Purge error:", err));
-
     return () => {
       isMounted = false;
       unsubPrev();
       unsubCurrent();
     };
-  }, [selectedClassId, selectedMonth, eligibleStudentsForMonth, monthlyFee, monthOptions]);
+  }, [selectedClassId, selectedMonth, eligibleStudentsForMonth, monthlyFee, monthOptions, currentUserEmail]);
 
   // RESET TO PAGE 1 ON FILTER CHANGE
   useEffect(() => setCurrentPage(1), [statusFilter, genderFilter, selectedClassId, selectedMonth]);
 
   // ----------------------------------------------------------------------
-  // 3. STRICT SEQUENTIAL SORTING (1, 2, 3...)
+  // 3. STRICT SEQUENTIAL SORTING
   // ----------------------------------------------------------------------
   const sortedStudentsList = useMemo(() => {
     const list = [...eligibleStudentsForMonth];
@@ -475,24 +440,25 @@ export default function Fees() {
       if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
         return numA - numB;
       }
-      return 0;
+      return (a.name || '').localeCompare(b.name || '');
     });
   }, [eligibleStudentsForMonth]);
 
   // METRICS CALCULATIONS
   const totalStudents = sortedStudentsList.length;
-  const paidCount = useMemo(() => sortedStudentsList.filter((s: any) => feeMap[s.id]?.status === 'PAID').length, [sortedStudentsList, feeMap]);
-  const unpaidCount = useMemo(() => sortedStudentsList.filter((s: any) => !feeMap[s.id] || feeMap[s.id]?.status === 'UNPAID').length, [sortedStudentsList, feeMap]);
-  const partialCount = useMemo(() => sortedStudentsList.filter((s: any) => feeMap[s.id]?.status === 'PARTIAL').length, [sortedStudentsList, feeMap]);
+  const paidCount = useMemo(() => sortedStudentsList.filter((s: any) => feeMap[s.id || s.studentId || s._seqKey]?.status === 'PAID').length, [sortedStudentsList, feeMap]);
+  const unpaidCount = useMemo(() => sortedStudentsList.filter((s: any) => !feeMap[s.id || s.studentId || s._seqKey] || feeMap[s.id || s.studentId || s._seqKey]?.status === 'UNPAID').length, [sortedStudentsList, feeMap]);
+  const partialCount = useMemo(() => sortedStudentsList.filter((s: any) => feeMap[s.id || s.studentId || s._seqKey]?.status === 'PARTIAL').length, [sortedStudentsList, feeMap]);
 
-  const totalCollectedPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id]?.paidAmount || 0), 0), [sortedStudentsList, feeMap]);
-  const totalPendingDuesPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id]?.remainingDues || 0), 0), [sortedStudentsList, feeMap]);
-  const totalPrevMonthDuesPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id]?.previousMonthDues || 0), 0), [sortedStudentsList, feeMap]);
+  const totalCollectedPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id || s.studentId || s._seqKey]?.paidAmount || 0), 0), [sortedStudentsList, feeMap]);
+  const totalPendingDuesPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id || s.studentId || s._seqKey]?.remainingDues || 0), 0), [sortedStudentsList, feeMap]);
+  const totalPrevMonthDuesPKR = useMemo(() => sortedStudentsList.reduce((sum: number, s: any) => sum + (feeMap[s.id || s.studentId || s._seqKey]?.previousMonthDues || 0), 0), [sortedStudentsList, feeMap]);
 
   // FILTERING & PAGINATION
   const filteredStudents = useMemo(() => {
     return sortedStudentsList.filter((student: any) => {
-      const record = feeMap[student.id];
+      const key = student.id || student.studentId || student._seqKey;
+      const record = feeMap[key];
       const matchesGender = genderFilter === 'ALL' || student.gender === genderFilter;
 
       if (!matchesGender) return false;
@@ -514,7 +480,8 @@ export default function Fees() {
 
   // MODAL HANDLERS
   const openPaymentModal = (student: any) => {
-    const currentRecord = feeMap[student.id] || {
+    const key = student.id || student.studentId || student._seqKey;
+    const currentRecord = feeMap[key] || {
       status: 'UNPAID',
       paidAmount: 0,
       remainingDues: Number(currentClass.monthlyFee || 0),
@@ -541,15 +508,15 @@ export default function Fees() {
 
   // CASCADING PAYMENT SAVE LOGIC
   const handleSaveModalPayment = async () => {
-    if (!activeModalStudent || !selectedClassId) return;
+    if (!activeModalStudent || !selectedClassId || !currentUserEmail) return;
 
-    const studentId = activeModalStudent.id;
+    const studentId = activeModalStudent.id || activeModalStudent.studentId || activeModalStudent._seqKey;
     const totalPaidVal = Number(modalPaidInput) || 0;
     const currentClassMonthlyFee = Number(currentClass.monthlyFee || 0);
 
     const prevMonthStr = getMonthOffset(selectedMonth, -1);
-    const prevFeeRef = doc(db, 'users', USER_ID, 'fees', `${selectedClassId}_${prevMonthStr}`);
-    const currentFeeRef = doc(db, 'users', USER_ID, 'fees', docKey);
+    const prevFeeRef = doc(db, 'users', currentUserEmail, 'fees', `${selectedClassId}_${prevMonthStr}`);
+    const currentFeeRef = doc(db, 'users', currentUserEmail, 'fees', docKey);
 
     try {
       const prevSnap = await getDoc(prevFeeRef);
@@ -628,12 +595,13 @@ export default function Fees() {
 
   // BATCH ACTIONS
   const markAllPaid = async () => {
-    if (!selectedClassId) return;
+    if (!selectedClassId || !currentUserEmail) return;
     const updated: Record<string, StudentFeeRecord> = {};
     sortedStudentsList.forEach((s: any) => {
-      const prevDues = feeMap[s.id]?.previousMonthDues || 0;
+      const key = s.id || s.studentId || s._seqKey;
+      const prevDues = feeMap[key]?.previousMonthDues || 0;
       const totalPayable = Number(currentClass.monthlyFee || 0) + prevDues;
-      updated[s.id] = {
+      updated[key] = {
         status: 'PAID',
         paidAmount: totalPayable,
         remainingDues: 0,
@@ -643,7 +611,7 @@ export default function Fees() {
     setFeeMap(updated);
 
     try {
-      const docRef = doc(db, 'users', USER_ID, 'fees', docKey);
+      const docRef = doc(db, 'users', currentUserEmail, 'fees', docKey);
       await setDoc(docRef, {
         classId: selectedClassId,
         month: selectedMonth,
@@ -658,12 +626,13 @@ export default function Fees() {
   };
 
   const markAllUnpaid = async () => {
-    if (!selectedClassId) return;
+    if (!selectedClassId || !currentUserEmail) return;
     const updated: Record<string, StudentFeeRecord> = {};
     sortedStudentsList.forEach((s: any) => {
-      const prevDues = feeMap[s.id]?.previousMonthDues || 0;
+      const key = s.id || s.studentId || s._seqKey;
+      const prevDues = feeMap[key]?.previousMonthDues || 0;
       const totalPayable = Number(currentClass.monthlyFee || 0) + prevDues;
-      updated[s.id] = {
+      updated[key] = {
         status: 'UNPAID',
         paidAmount: 0,
         remainingDues: totalPayable,
@@ -673,7 +642,7 @@ export default function Fees() {
     setFeeMap(updated);
 
     try {
-      const docRef = doc(db, 'users', USER_ID, 'fees', docKey);
+      const docRef = doc(db, 'users', currentUserEmail, 'fees', docKey);
       await setDoc(docRef, {
         classId: selectedClassId,
         month: selectedMonth,
@@ -708,7 +677,7 @@ export default function Fees() {
   return (
     <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070c18] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-36 ${isDark ? 'dark' : ''}`}>
 
-      {/* TOP HEADER WITH BACK ARROW & EXTRA CHARGES ONLY */}
+      {/* TOP HEADER WITH BACK ARROW & EXTRA CHARGES */}
       <div className="w-full bg-white/60 dark:bg-[#080e1e]/80 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-800/80 sticky top-0 z-40">
         <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
           
@@ -723,8 +692,6 @@ export default function Fees() {
           </div>
 
           <div className="flex items-center gap-3">
-            
-            {/* EXTRA CHARGES CARD / BUTTON */}
             <Link
               to="/extra-fee"
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-extrabold text-xs shadow-[0_0_15px_rgba(249,115,22,0.4)] hover:scale-105 transition-all shrink-0"
@@ -798,7 +765,7 @@ export default function Fees() {
           </div>
         </div>
 
-        {/* SELECTOR CARD WITH CLASS & AUTOMATIC BOUNDED MONTH DROPDOWN */}
+        {/* SELECTOR CARD WITH CLASS & MONTH DROPDOWN */}
         <div className="relative overflow-hidden rounded-3xl p-[2px] border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)]">
           <div className="rounded-[22px] bg-white dark:bg-[#0a1020] p-6 md:p-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
@@ -812,7 +779,7 @@ export default function Fees() {
                 
                 <div className="flex flex-col sm:flex-row gap-3 max-w-lg pt-1">
                   
-                  {/* DYNAMIC CLASS DROPDOWN */}
+                  {/* CLASS DROPDOWN */}
                   <div className="relative flex-1">
                     <select
                       value={selectedClassId}
@@ -835,7 +802,7 @@ export default function Fees() {
                     <ChevronRight className="absolute right-3.5 top-1/2 -translate-y-1/2 rotate-90 h-4 w-4 text-orange-400 pointer-events-none" />
                   </div>
                   
-                  {/* AUTOMATIC DYNAMIC 2-MONTH DROPDOWN */}
+                  {/* MONTH DROPDOWN */}
                   <div className="relative flex-1">
                     <select
                       value={selectedMonth}
@@ -996,8 +963,9 @@ export default function Fees() {
             </div>
           ) : (
             paginatedStudents.map((student: any, index: number) => {
+              const studentKey = student.id || student.studentId || student._seqKey;
               const globalIndex = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
-              const record: StudentFeeRecord = feeMap[student.id] || {
+              const record: StudentFeeRecord = feeMap[studentKey] || {
                 status: 'UNPAID',
                 paidAmount: 0,
                 remainingDues: Number(currentClass.monthlyFee),
@@ -1015,7 +983,7 @@ export default function Fees() {
 
               return (
                 <div
-                  key={student.id}
+                  key={studentKey || globalIndex}
                   className={`group relative overflow-hidden rounded-2xl p-[2px] transition-all duration-300 ${
                     isPaid
                       ? 'border-2 border-slate-300 dark:border-slate-800 shadow-sm'
@@ -1026,11 +994,11 @@ export default function Fees() {
                 >
                   <div className="relative bg-white dark:bg-[#0a1020] p-4 rounded-[14px] flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 backdrop-blur-md">
                     
-                    {/* Left: Student Profile & Joining Badge */}
+                    {/* Left: Student Profile */}
                     <div className="flex items-center gap-3.5 min-w-0">
                       <div className="relative shrink-0">
                         <img
-                          src={student.avatar || 'https://via.placeholder.com/150'}
+                          src={student.avatar || student.image || 'https://via.placeholder.com/150'}
                           alt={student.name}
                           className="h-12 w-12 rounded-full object-cover ring-2 ring-orange-500/40 shadow-md"
                         />
@@ -1045,7 +1013,6 @@ export default function Fees() {
                             {student.name || 'Unnamed Student'}
                           </h4>
 
-                          {/* JOINING DATE BADGE - ONLY IN THE FIRST MONTH */}
                           {isFirstAdmissionMonth && joiningDateDisplay && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/40 text-orange-600 dark:text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.2)] animate-pulse">
                               <Sparkles className="h-3 w-3 text-orange-500" />
@@ -1057,7 +1024,6 @@ export default function Fees() {
                         <div className="text-[10px] font-bold text-slate-400 flex items-center gap-2 flex-wrap">
                           <span>{student.gender === 'Male' ? 'Male' : 'Female'} | Fee: PKR {currentClass.monthlyFee}</span>
                           
-                          {/* SHOW PRORATED SUGGESTION IN FIRST MONTH */}
                           {isFirstAdmissionMonth && prorated && (
                             <span className="text-amber-600 dark:text-amber-400 font-extrabold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/30 flex items-center gap-1">
                               <Calculator className="h-3 w-3 text-amber-500" />
@@ -1074,7 +1040,7 @@ export default function Fees() {
                       </div>
                     </div>
 
-                    {/* Right: Payment Status & Actions */}
+                    {/* Right: Payment Status */}
                     <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
                       {hasRemaining ? (
                         <button
@@ -1182,7 +1148,6 @@ export default function Fees() {
 
             <div className="space-y-4 relative z-10">
               
-              {/* FIRST MONTH PRORATED ASSISTANT */}
               {isModalStudentInFirstMonth && modalProratedDetails && (
                 <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/40 rounded-2xl p-3.5 space-y-2 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
                   <div className="flex items-center justify-between text-xs font-black text-amber-600 dark:text-amber-400">
@@ -1218,7 +1183,6 @@ export default function Fees() {
                 </div>
               )}
 
-              {/* DUES SUMMARY GRID */}
               <div className="grid grid-cols-2 gap-2 bg-slate-100/70 dark:bg-[#070d1a] p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Prev Unpaid Dues</span>

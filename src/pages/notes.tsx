@@ -9,6 +9,7 @@ import {
 // --- FIREBASE SETUP ---
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAmHi2OOGNteUXjuX0_weF8XKEa3KP7OYE",
@@ -22,6 +23,7 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
+const auth = getAuth(app);
 
 // Types
 type ResourceCategory = 'All' | 'Notes' | 'Textbooks' | 'Past Papers' | 'Assignments';
@@ -102,6 +104,7 @@ function BottomNavbar() {
 // --- MAIN PAGE COMPONENT ---
 export default function NotesLibraryPage() {
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [libraries, setLibraries] = useState<ClassLibrary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,53 +138,64 @@ export default function NotesLibraryPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Fetch Data from Firestore
+  // Auth Listener & Dynamic Data Fetching
   useEffect(() => {
-    const fetchClasses = async () => {
-      try {
-        setLoading(true);
-        const userId = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83'; 
-        const classesRef = collection(db, 'users', userId, 'classes');
-        
-        const querySnapshot = await getDocs(classesRef);
-        const fetchedClasses: ClassLibrary[] = [];
-        
-        for (const classDoc of querySnapshot.docs) {
-          const data = classDoc.data();
-          const documentsRef = collection(db, 'users', userId, 'classes', classDoc.id, 'documents');
-          const documentsSnapshot = await getDocs(documentsRef);
-          
-          const subCollectionDocs = documentsSnapshot.docs.map(doc => {
-            const docData = doc.data() as LibraryResource;
-            // Dynamic Share URL fix for existing documents
-            const currentOrigin = window.location.origin;
-            return {
-              ...docData,
-              shareUrl: `${currentOrigin}/notes/share?id=${docData.id}`
-            };
-          });
-
-          fetchedClasses.push({
-            id: classDoc.id,
-            className: data.name || data.className || 'Unnamed Class',
-            classCode: data.code || data.classCode || 'N/A',
-            totalStudents: data.students ? data.students.length : (data.totalStudents || 0),
-            bgGradient: data.bgGradient || 'from-blue-500/10 to-indigo-500/10 text-blue-600 border-blue-200',
-            resources: [...(data.resources || []), ...subCollectionDocs],
-          });
-        }
-
-        fetchedClasses.sort((a, b) => a.className.localeCompare(b.className));
-        setLibraries(fetchedClasses);
-      } catch (error) {
-        console.error("Error fetching data: ", error);
-      } finally {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // Use user.email (or user.uid) dynamically matching Fee Page logic
+        const userIdentifier = user.email || user.uid;
+        await fetchClasses(userIdentifier);
+      } else {
+        setLibraries([]);
         setLoading(false);
       }
-    };
+    });
 
-    fetchClasses();
+    return () => unsubscribe();
   }, []);
+
+  // Fetch Data from Firestore dynamically per user
+  const fetchClasses = async (userKey: string) => {
+    try {
+      setLoading(true);
+      const classesRef = collection(db, 'users', userKey, 'classes');
+      
+      const querySnapshot = await getDocs(classesRef);
+      const fetchedClasses: ClassLibrary[] = [];
+      
+      for (const classDoc of querySnapshot.docs) {
+        const data = classDoc.data();
+        const documentsRef = collection(db, 'users', userKey, 'classes', classDoc.id, 'documents');
+        const documentsSnapshot = await getDocs(documentsRef);
+        
+        const subCollectionDocs = documentsSnapshot.docs.map(doc => {
+          const docData = doc.data() as LibraryResource;
+          const currentOrigin = window.location.origin;
+          return {
+            ...docData,
+            shareUrl: `${currentOrigin}/notes/share?id=${docData.id}`
+          };
+        });
+
+        fetchedClasses.push({
+          id: classDoc.id,
+          className: data.name || data.className || 'Unnamed Class',
+          classCode: data.code || data.classCode || 'N/A',
+          totalStudents: data.students ? data.students.length : (data.totalStudents || 0),
+          bgGradient: data.bgGradient || 'from-blue-500/10 to-indigo-500/10 text-blue-600 border-blue-200',
+          resources: [...(data.resources || []), ...subCollectionDocs],
+        });
+      }
+
+      fetchedClasses.sort((a, b) => a.className.localeCompare(b.className));
+      setLibraries(fetchedClasses);
+    } catch (error) {
+      console.error("Error fetching data: ", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const currentClass = useMemo(() => {
     return libraries.find((cls) => cls.id === selectedClassId) || null;
@@ -231,7 +245,7 @@ export default function NotesLibraryPage() {
   // REAL FILE UPLOAD SUBMIT FUNCTION
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !selectedClassId) return;
+    if (!newTitle || !selectedClassId || !currentUser) return;
     setIsUploading(true);
 
     const convertFileToBase64 = (file: File): Promise<string> => {
@@ -255,13 +269,12 @@ export default function NotesLibraryPage() {
       }
 
       const newResId = `res-${Date.now()}`;
-      const userId = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83';
+      const userKey = currentUser.email || currentUser.uid;
 
-      // Dynamic Real Share URL (No more privacy error!)
       const currentOrigin = window.location.origin;
       const dynamicShareUrl = `${currentOrigin}/notes/share?id=${newResId}`;
 
-      await setDoc(doc(db, 'users', userId), { active: true }, { merge: true });
+      await setDoc(doc(db, 'users', userKey), { active: true }, { merge: true });
 
       const newResourceItem: LibraryResource = {
         id: newResId,
@@ -276,8 +289,8 @@ export default function NotesLibraryPage() {
         contentPreview: newDescription || 'Uploaded study material/CV for students.'
       };
 
-      // Save into Sub-collection under "classes -> CLASS_ID -> documents"
-      const docRef = doc(db, 'users', userId, 'classes', selectedClassId, 'documents', newResId);
+      // Save into Sub-collection dynamically
+      const docRef = doc(db, 'users', userKey, 'classes', selectedClassId, 'documents', newResId);
       await setDoc(docRef, newResourceItem);
 
       setLibraries((prev) =>
@@ -316,12 +329,12 @@ export default function NotesLibraryPage() {
   // Save Edit Function
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingResource || !selectedClassId) return;
+    if (!editingResource || !selectedClassId || !currentUser) return;
     setIsSavingEdit(true);
 
     try {
-      const userId = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83';
-      const docRef = doc(db, 'users', userId, 'classes', selectedClassId, 'documents', editingResource.id);
+      const userKey = currentUser.email || currentUser.uid;
+      const docRef = doc(db, 'users', userKey, 'classes', selectedClassId, 'documents', editingResource.id);
       
       const updatedData = {
         title: editTitle,
@@ -357,11 +370,11 @@ export default function NotesLibraryPage() {
 
   // Delete Resource Function
   const confirmDeleteResource = async () => {
-    if (!deletingResId || !selectedClassId) return;
+    if (!deletingResId || !selectedClassId || !currentUser) return;
 
     try {
-      const userId = 'X1Q76ib1XXPWcPp3FSQPLLaTzL83';
-      const docRef = doc(db, 'users', userId, 'classes', selectedClassId, 'documents', deletingResId);
+      const userKey = currentUser.email || currentUser.uid;
+      const docRef = doc(db, 'users', userKey, 'classes', selectedClassId, 'documents', deletingResId);
       await deleteDoc(docRef);
 
       setLibraries((prev) =>
