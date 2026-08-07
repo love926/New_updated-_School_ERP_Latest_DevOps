@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,14 +25,19 @@ import {
   Plus,
   HelpCircle,
   UserPlus,
-  LogOut,
-  ThumbsUp,
-  Download
+  Download,
+  X,
+  Smartphone,
+  Share,
+  MoreVertical,
+  CheckCircle2,
+  Zap,
+  ShieldCheck,
+  Check
 } from 'lucide-react';
 
 // Firebase Firestore & Auth Imports
 import { collection, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 
 // Fallback User ID
@@ -66,95 +71,21 @@ const normalizeDate = (dateStr: string) => {
 
 export default function Dashboard() {
   const { departments } = useApp();
-  const navigate = useNavigate();
-
-  // Logout Flow States
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  // PWA Deferred Prompt State (For App Download/Install)
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  // 1. PERSISTENT THEME INITIALIZATION
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('theme');
-      if (savedTheme) {
-        return savedTheme === 'dark';
-      }
-      return document.documentElement.classList.contains('dark');
-    }
-    return false;
-  });
-
+  const [isDark, setIsDark] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   const [loading, setLoading] = useState(true);
 
-  // 2. KEEP LOCALSTORAGE AND HTML ROOT SYNCED WITH THEME STATE
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      root.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
+  // PWA Install State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showPwaModal, setShowPwaModal] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [installSuccess, setInstallSuccess] = useState(false);
 
   // Profile Data State
   const [profileData, setProfileData] = useState<{ name: string; avatarUrl: string }>({
-    name: 'User',
+    name: 'Teacher',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100'
   });
-
-  // Current Auth User ID State
-  const [activeUserId, setActiveUserId] = useState<string>(auth.currentUser?.uid || FALLBACK_USER_ID);
-
-  // Listen to Auth State Changes
-  useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setActiveUserId(user.uid);
-        if (user.displayName) {
-          setProfileData((prev) => ({
-            ...prev,
-            name: user.displayName || 'User'
-          }));
-        }
-      }
-    });
-    return () => unsubscribeAuth();
-  }, []);
-
-  // Capture PWA Install Event
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  // Trigger App Download / Install Prompt
-  const handleInstallApp = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        console.log('User accepted the install prompt');
-      }
-      setDeferredPrompt(null);
-    } else {
-      alert('App is already installed or your browser does not support standard PWA prompt.');
-    }
-  };
 
   // Live Database States
   const [classesList, setClassesList] = useState<any[]>([]);
@@ -165,8 +96,45 @@ export default function Dashboard() {
     pendingStudents: 0,
   });
 
+  const activeUserId = auth.currentUser?.uid || FALLBACK_USER_ID;
+  const userEmail = auth.currentUser?.email;
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const monthKeyStr = useMemo(() => getCurrentMonthKey(), []);
+
+  // 0. PWA LISTENERS & DETECT STANDALONE MODE
+  useEffect(() => {
+    const isAppStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+      (window.navigator as any).standalone === true;
+    setIsStandalone(isAppStandalone);
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  // Handle Download App Click
+  const handleDownloadApp = async () => {
+    setShowPwaModal(true);
+  };
+
+  const executeInstallPrompt = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setInstallSuccess(true);
+        setDeferredPrompt(null);
+        setTimeout(() => {
+          setShowPwaModal(false);
+          setInstallSuccess(false);
+        }, 2000);
+      }
+    }
+  };
 
   // Bottom Navigation App Items
   const navigationTabs = [
@@ -189,33 +157,51 @@ export default function Dashboard() {
     { title: 'Alerts', icon: AlertCircle, color: 'bg-white dark:bg-[#0c1222] text-rose-600 dark:text-rose-400 border-rose-400/80 dark:border-rose-500/50 hover:shadow-[0_0_20px_rgba(244,63,94,0.35)]', href: '/alerts' },
   ];
 
-  // 1. FETCH USER PROFILE DATA FROM FIRESTORE
+  // 1. FETCH USER PROFILE & TEACHER NAME FROM FIRESTORE
   useEffect(() => {
-    if (!activeUserId) return;
-    const profileDocRef = doc(db, 'users', activeUserId, 'settings', 'profile_data');
-    const unsubscribeProfile = onSnapshot(profileDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data && data.profile) {
+    let unsubscribeUser = () => {};
+
+    if (userEmail) {
+      const emailDocRef = doc(db, 'users', userEmail);
+      unsubscribeUser = onSnapshot(emailDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
           setProfileData({
-            name: data.profile.name || auth.currentUser?.displayName || 'User',
-            avatarUrl: data.profile.avatarUrl && data.profile.avatarUrl.trim() !== ''
-              ? data.profile.avatarUrl
-              : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
+            name: data.teacherName || data.name || userEmail.split('@')[0],
+            avatarUrl: data.profileImage || data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
+          });
+        } else {
+          const uidDocRef = doc(db, 'users', activeUserId);
+          getDoc(uidDocRef).then((uidSnap) => {
+            if (uidSnap.exists()) {
+              const data = uidSnap.data();
+              setProfileData({
+                name: data.teacherName || data.name || 'Teacher',
+                avatarUrl: data.profileImage || data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
+              });
+            }
           });
         }
-      } else if (auth.currentUser?.displayName) {
-        setProfileData((prev) => ({
-          ...prev,
-          name: auth.currentUser?.displayName || 'User',
-        }));
-      }
-    }, (err) => {
-      console.error("Error fetching profile_data:", err);
-    });
+      }, (err) => {
+        console.error("Error fetching user profile by email:", err);
+      });
+    } else {
+      const uidDocRef = doc(db, 'users', activeUserId);
+      unsubscribeUser = onSnapshot(uidDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setProfileData({
+            name: data.teacherName || data.name || 'Teacher',
+            avatarUrl: data.profileImage || data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
+          });
+        }
+      }, (err) => {
+        console.error("Error fetching user profile by uid:", err);
+      });
+    }
 
-    return () => unsubscribeProfile();
-  }, [activeUserId]);
+    return () => unsubscribeUser();
+  }, [activeUserId, userEmail]);
 
   // 2. LIVE FIRESTORE DATA SYNC FOR CLASSES & METRICS
   useEffect(() => {
@@ -374,24 +360,6 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [activeUserId, todayStr, monthKeyStr]);
 
-  // Handle Firebase Sign Out Execution
-  const handleConfirmLogout = async () => {
-    try {
-      setIsLoggingOut(true);
-      await signOut(auth);
-      setShowConfirmModal(false);
-      setShowSuccessModal(true);
-    } catch (error) {
-      console.error('Logout error:', error);
-      setIsLoggingOut(false);
-    }
-  };
-
-  const handleRedirectToLogin = () => {
-    setShowSuccessModal(false);
-    navigate('/login');
-  };
-
   // Dynamic Metrics Array
   const overviewMetrics = [
     { title: 'Total Active Classes', value: String(metricsData.totalClasses), change: 'Live from DB', positive: true, icon: Flame, bg: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400', glow: 'hover:border-indigo-500/80 hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]' },
@@ -416,19 +384,9 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Install App / Download Button */}
-            <button
-              onClick={handleInstallApp}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-orange-500/40 bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold text-xs transition-all duration-300 hover:bg-orange-500 hover:text-white shadow-[0_0_12px_rgba(249,115,22,0.25)] active:scale-95"
-              title="Download / Install App"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Download</span>
-            </button>
-
-            {/* Smooth Light/Dark Toggle Pill */}
+            {/* Light/Dark Toggle Pill */}
             <button 
-              onClick={() => setIsDark((prev) => !prev)}
+              onClick={() => setIsDark(!isDark)}
               className="flex h-7 w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30"
             >
               <div className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
@@ -446,16 +404,6 @@ export default function Dashboard() {
                 3
               </span>
             </Link>
-
-            {/* PREMIUM GLOWING LOGOUT BUTTON */}
-            <button
-              onClick={() => setShowConfirmModal(true)}
-              className="group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold text-xs transition-all duration-300 hover:bg-rose-600 hover:text-white hover:border-rose-600 shadow-[0_0_15px_rgba(244,63,94,0.25)] hover:shadow-[0_0_22px_rgba(244,63,94,0.6)] active:scale-95"
-              title="Logout from system"
-            >
-              <LogOut className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
 
             {/* Dynamic Profile Avatar */}
             <Link
@@ -479,14 +427,14 @@ export default function Dashboard() {
         {/* BANNER GREETING ROW */}
         <div className="space-y-0.5">
           <h2 className="text-xl font-extrabold tracking-tight md:text-2xl flex items-center gap-2">
-            Welcome back, <span className="text-slate-950 dark:text-white">{profileData.name}</span>! 
+            Welcome back, <span className="text-orange-500 dark:text-orange-400">{profileData.name}</span> ! 
           </h2>
           <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
             Here&apos;s a high-fidelity lookup of your institutional framework today.
           </p>
         </div>
 
-        {/* HERO BANNER */}
+        {/* HERO BANNER - EDUTRACK CARD WITH PWA DOWNLOAD TRIGGER */}
         <div className="relative rounded-3xl bg-white dark:bg-[#0c1222] p-6 md:p-8 border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)] transition-all duration-300">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
             <div className="max-w-xl space-y-3">
@@ -498,10 +446,23 @@ export default function Dashboard() {
                 <span className="text-[10px] font-bold uppercase tracking-wider">Live Engine Active</span>
               </div>
 
-              {/* EDUTRACK HEADER */}
-              <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-white sm:text-4xl">
-                EduTrack
-              </h1>
+              {/* EDUTRACK HEADER WITH GLOWING DOWNLOAD BUTTON */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-3xl font-black tracking-tight text-slate-950 dark:text-white sm:text-4xl">
+                  EduTrack
+                </h1>
+                
+                <button
+                  type="button"
+                  onClick={handleDownloadApp}
+                  className="relative group inline-flex items-center gap-2 px-4 py-1.5 text-xs font-black text-white bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-full shadow-[0_0_20px_rgba(249,115,22,0.6)] hover:shadow-[0_0_30px_rgba(249,115,22,0.9)] hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer overflow-hidden border border-orange-300/50"
+                >
+                  <span className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
+                  <Download className="h-3.5 w-3.5 animate-bounce" />
+                  <span>Download</span>
+                </button>
+              </div>
+
               <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
                 Intelligent Management & Analytics System for Colleges and Universities
               </p>
@@ -522,6 +483,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Outside Border Glow Box */}
             <div className="hidden md:flex items-center justify-center w-52 h-36 bg-white dark:bg-[#070b13] border-2 border-orange-500/50 rounded-2xl shadow-[0_0_15px_rgba(249,115,22,0.25)] group transition-all hover:shadow-[0_0_25px_rgba(249,115,22,0.4)]">
               <div className="text-center p-4 space-y-1.5">
                 <div className="mx-auto w-10 h-10 rounded-xl bg-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/30 transition-transform duration-300 group-hover:scale-110">
@@ -657,8 +619,8 @@ export default function Dashboard() {
 
       </main>
 
-      {/* ULTRA-PREMIUM STICKY BOTTOM NAVIGATION POOL */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 pt-2 bg-gradient-to-t from-[#f8fafc] via-[#f8fafc]/90 to-transparent dark:from-[#070b13] dark:via-[#070b13]/90">
+      {/* STICKY BOTTOM NAVIGATION POOL */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-4 pt-2 bg-gradient-to-t from-[#f8fafc] via-[#f8fafc]/90 to-transparent dark:from-[#070b13] dark:via-[#070b13]/90">
         <nav className="mx-auto max-w-md bg-white/80 dark:bg-[#0c1222]/90 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/40 rounded-3xl shadow-[0_15px_35px_-5px_rgba(0,0,0,0.08)] dark:shadow-[0_20px_40px_rgba(0,0,0,0.4)] px-3 py-2 flex items-center justify-between">
           {navigationTabs.map((tab) => {
             const IconComponent = tab.icon;
@@ -687,65 +649,133 @@ export default function Dashboard() {
         </nav>
       </div>
 
-      {/* 1. PREMIUM LOGOUT CONFIRMATION MODAL */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-xs rounded-3xl bg-white dark:bg-[#0c1222] p-6 shadow-[0_0_35px_rgba(244,63,94,0.3)] border border-rose-500/30 text-center space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 border border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.3)]">
-              <LogOut className="h-8 w-8" />
-            </div>
+      {/* ULTRA UNIQUE GLOWING & ANIMATED CENTERED PWA POPUP NOTIFICATION */}
+      {showPwaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          
+          {/* Animated Glow Background Ring */}
+          <div className="relative w-full max-w-md">
+            <div className="absolute -inset-1.5 rounded-[38px] bg-gradient-to-r from-orange-500 via-amber-400 to-rose-500 opacity-80 blur-xl animate-pulse" />
 
-            <div>
-              <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-                Oh no! You&apos;re leaving...
-              </h3>
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 mt-1">
-                Are you sure?
-              </p>
-            </div>
+            {/* Glassmorphic Main Card Container */}
+            <div className="relative overflow-hidden rounded-[32px] bg-slate-900/95 dark:bg-[#090d16]/95 border border-orange-500/40 p-6 md:p-7 shadow-[0_0_60px_rgba(249,115,22,0.4)] text-white backdrop-blur-2xl animate-in zoom-in-95 duration-300">
+              
+              {/* Background Ambient Light Orbs */}
+              <div className="absolute -top-12 -right-12 h-36 w-36 rounded-full bg-orange-500/20 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-12 -left-12 h-36 w-36 rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
 
-            <div className="space-y-2 pt-2">
+              {/* Top Close Button */}
               <button
-                onClick={() => setShowConfirmModal(false)}
-                disabled={isLoggingOut}
-                className="w-full rounded-2xl bg-red-600 py-3 text-xs font-black text-white shadow-md shadow-red-500/30 transition-all hover:bg-red-700 active:scale-95 disabled:opacity-50"
+                onClick={() => setShowPwaModal(false)}
+                className="absolute right-4 top-4 z-10 rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 cursor-pointer"
               >
-                Nah, Just Kidding
+                <X className="h-5 w-5" />
               </button>
-              <button
-                onClick={handleConfirmLogout}
-                disabled={isLoggingOut}
-                className="w-full rounded-2xl border-2 border-red-500/80 bg-transparent py-2.5 text-xs font-black text-red-600 dark:text-red-400 transition-all hover:bg-red-50 dark:hover:bg-red-950/30 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isLoggingOut && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Yes, Log Me Out
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* 2. PREMIUM LOGOUT SUCCESS NOTIFICATION MODAL */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-xs rounded-3xl bg-white dark:bg-[#0c1222] p-6 shadow-[0_0_35px_rgba(34,197,94,0.3)] border border-emerald-500/30 text-center space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white shadow-inner">
-              <ThumbsUp className="h-8 w-8 fill-current" />
-            </div>
+              {installSuccess ? (
+                /* Success Animated View */
+                <div className="py-8 text-center space-y-4 animate-in zoom-in-90 duration-300">
+                  <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.5)] animate-bounce">
+                    <CheckCircle2 className="h-10 w-10" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black text-white">App Installed Successfully!</h3>
+                    <p className="text-xs text-slate-300 font-medium">EduTrack is now ready on your device home screen.</p>
+                  </div>
+                </div>
+              ) : (
+                /* Standard Animated Modal View */
+                <div className="space-y-5 text-center relative z-10">
+                  
+                  {/* Floating Glowing App Icon Badge */}
+                  <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-orange-500 via-amber-500 to-rose-500 animate-spin [animation-duration:8s] blur-md opacity-70" />
+                    <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white shadow-xl ring-2 ring-orange-300/40">
+                      <Smartphone className="h-8 w-8 animate-pulse" />
+                    </div>
+                    <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-slate-950 font-black shadow-lg">
+                      <Zap className="h-3.5 w-3.5 fill-current" />
+                    </span>
+                  </div>
 
-            <div>
-              <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white leading-snug">
-                You&apos;ve successfully Logged out.
-              </h3>
-            </div>
+                  {/* Header Title */}
+                  <div className="space-y-1.5">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-orange-400/40 bg-orange-500/10 text-orange-400 text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+                      <Sparkles className="h-3 w-3 animate-spin" /> Next-Gen Mobile App
+                    </div>
+                    <h3 className="text-2xl font-black tracking-tight text-white">
+                      Install <span className="bg-gradient-to-r from-orange-400 via-amber-300 to-orange-500 bg-clip-text text-transparent">EduTrack PWA</span>
+                    </h3>
+                    <p className="text-xs text-slate-300 font-medium leading-relaxed px-2">
+                      Get lightning-fast offline access, desktop shortcuts & native app experience directly on your device.
+                    </p>
+                  </div>
 
-            <div className="pt-2">
-              <button
-                onClick={handleRedirectToLogin}
-                className="w-full rounded-2xl bg-red-600 py-3 text-xs font-black text-white shadow-md shadow-red-500/30 transition-all hover:bg-red-700 active:scale-95"
-              >
-                Back to Login
-              </button>
+                  {/* Features Highlight Pill Row */}
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-extrabold text-slate-200">
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-1 hover:border-orange-500/50 transition-colors">
+                      <ShieldCheck className="h-4 w-4 text-orange-400" />
+                      <span>100% Secure</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-1 hover:border-amber-400/50 transition-colors">
+                      <Zap className="h-4 w-4 text-amber-400" />
+                      <span>Instant Sync</span>
+                    </div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-1 hover:border-emerald-400/50 transition-colors">
+                      <Check className="h-4 w-4 text-emerald-400" />
+                      <span>No Store Req.</span>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Action Section based on Prompt availability */}
+                  {deferredPrompt ? (
+                    <div className="pt-2 space-y-2">
+                      <button
+                        onClick={executeInstallPrompt}
+                        className="w-full relative group py-3.5 px-6 rounded-2xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white font-black text-sm shadow-[0_0_30px_rgba(249,115,22,0.6)] hover:shadow-[0_0_45px_rgba(249,115,22,0.9)] hover:scale-[1.02] active:scale-95 transition-all duration-300 cursor-pointer overflow-hidden border border-orange-300/40"
+                      >
+                        <span className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
+                        <span className="flex items-center justify-center gap-2">
+                          <Download className="h-4 w-4" /> Click To Install App Now
+                        </span>
+                      </button>
+                    </div>
+                  ) : isStandalone ? (
+                    <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/40 rounded-2xl flex items-center gap-3 text-left">
+                      <CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
+                      <div>
+                        <div className="text-xs font-bold text-emerald-300">App Active</div>
+                        <div className="text-[11px] text-slate-300">You are already running EduTrack in Standalone App Mode!</div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Manual Installation Guide if standard browser prompt is unavailable */
+                    <div className="text-left space-y-2 bg-slate-950/60 p-3.5 rounded-2xl border border-white/10 text-xs">
+                      <div className="text-[11px] font-bold text-orange-400 uppercase tracking-wider mb-1">How to Install Manually:</div>
+                      
+                      <div className="flex items-start gap-2 text-slate-300">
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-orange-500/30 text-orange-400 font-bold text-[10px] mt-0.5">1</div>
+                        <span>Tap browser menu <MoreVertical className="h-3.5 w-3.5 inline text-orange-400" /> or Share <Share className="h-3.5 w-3.5 inline text-orange-400" /></span>
+                      </div>
+
+                      <div className="flex items-start gap-2 text-slate-300">
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-orange-500/30 text-orange-400 font-bold text-[10px] mt-0.5">2</div>
+                        <span>Select <strong className="text-white">&quot;Add to Home Screen&quot;</strong> or <strong className="text-white">&quot;Install App&quot;</strong></span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dismiss Button */}
+                  <button
+                    onClick={() => setShowPwaModal(false)}
+                    className="w-full text-xs font-bold text-slate-400 hover:text-white transition-colors pt-1 cursor-pointer"
+                  >
+                    Dismiss & Continue Web Version
+                  </button>
+
+                </div>
+              )}
+
             </div>
           </div>
         </div>
