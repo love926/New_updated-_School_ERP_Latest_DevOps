@@ -2,15 +2,15 @@ import { initializeApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 
-// Firebase configuration - These are publishable keys (safe to expose in frontend)
-// Users should replace these with their own Firebase project credentials
+// Firebase configuration
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  apiKey: "AIzaSyD6VYcdJh2hjmFt7yObebzgcXkxyPAJsDU",
+  authDomain: "edutrack-toba.firebaseapp.com",
+  projectId: "edutrack-toba",
+  storageBucket: "edutrack-toba.firebasestorage.app",
+  messagingSenderId: "281644282518",
+  appId: "1:281644282518:web:7a4bcaa5a97da2035808b7",
+  measurementId: "G-EG30GVMXSH"
 };
 
 // Check if Firebase is configured
