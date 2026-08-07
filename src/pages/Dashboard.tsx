@@ -26,12 +26,13 @@ import {
   HelpCircle,
   UserPlus,
   LogOut,
-  ThumbsUp
+  ThumbsUp,
+  Download
 } from 'lucide-react';
 
 // Firebase Firestore & Auth Imports
 import { collection, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
+import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 
 // Fallback User ID
@@ -72,6 +73,9 @@ export default function Dashboard() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
+  // PWA Deferred Prompt State (For App Download/Install)
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
   // 1. PERSISTENT THEME INITIALIZATION
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -101,9 +105,56 @@ export default function Dashboard() {
 
   // Profile Data State
   const [profileData, setProfileData] = useState<{ name: string; avatarUrl: string }>({
-    name: 'Admin',
+    name: 'User',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100'
   });
+
+  // Current Auth User ID State
+  const [activeUserId, setActiveUserId] = useState<string>(auth.currentUser?.uid || FALLBACK_USER_ID);
+
+  // Listen to Auth State Changes
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setActiveUserId(user.uid);
+        if (user.displayName) {
+          setProfileData((prev) => ({
+            ...prev,
+            name: user.displayName || 'User'
+          }));
+        }
+      }
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Capture PWA Install Event
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Trigger App Download / Install Prompt
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      }
+      setDeferredPrompt(null);
+    } else {
+      alert('App is already installed or your browser does not support standard PWA prompt.');
+    }
+  };
 
   // Live Database States
   const [classesList, setClassesList] = useState<any[]>([]);
@@ -114,7 +165,6 @@ export default function Dashboard() {
     pendingStudents: 0,
   });
 
-  const activeUserId = auth.currentUser?.uid || FALLBACK_USER_ID;
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const monthKeyStr = useMemo(() => getCurrentMonthKey(), []);
 
@@ -141,18 +191,24 @@ export default function Dashboard() {
 
   // 1. FETCH USER PROFILE DATA FROM FIRESTORE
   useEffect(() => {
+    if (!activeUserId) return;
     const profileDocRef = doc(db, 'users', activeUserId, 'settings', 'profile_data');
     const unsubscribeProfile = onSnapshot(profileDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data && data.profile) {
           setProfileData({
-            name: data.profile.name || 'Admin',
+            name: data.profile.name || auth.currentUser?.displayName || 'User',
             avatarUrl: data.profile.avatarUrl && data.profile.avatarUrl.trim() !== ''
               ? data.profile.avatarUrl
               : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
           });
         }
+      } else if (auth.currentUser?.displayName) {
+        setProfileData((prev) => ({
+          ...prev,
+          name: auth.currentUser?.displayName || 'User',
+        }));
       }
     }, (err) => {
       console.error("Error fetching profile_data:", err);
@@ -360,6 +416,16 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Install App / Download Button */}
+            <button
+              onClick={handleInstallApp}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-orange-500/40 bg-orange-500/10 text-orange-600 dark:text-orange-400 font-bold text-xs transition-all duration-300 hover:bg-orange-500 hover:text-white shadow-[0_0_12px_rgba(249,115,22,0.25)] active:scale-95"
+              title="Download / Install App"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Download</span>
+            </button>
+
             {/* Smooth Light/Dark Toggle Pill */}
             <button 
               onClick={() => setIsDark((prev) => !prev)}
