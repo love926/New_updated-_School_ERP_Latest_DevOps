@@ -19,13 +19,17 @@ import {
   Calculator,
   Edit2,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  GraduationCap,
+  Check,
+  Calendar,
+  BellRing
 } from 'lucide-react';
 
-// Firebase Imports
-import { initializeApp, getApps, getApp } from 'firebase/app';
+// Firebase Database & Auth Imports
+import { db, auth } from '../../lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import {
-  getFirestore,
   collection,
   doc,
   setDoc,
@@ -34,21 +38,6 @@ import {
   deleteDoc,
   updateDoc
 } from 'firebase/firestore';
-
-// Firebase Config
-const firebaseConfig = {
-  apiKey: "AIzaSyAmHi20OGNTeUXjuXO_weF8XKEa3KP7oYE",
-  authDomain: "tuition-management-b9e2f.firebaseapp.com",
-  projectId: "tuition-management-b9e2f",
-  storageBucket: "tuition-management-b9e2f.firebasestorage.app",
-  messagingSenderId: "634395063857",
-  appId: "1:634395063857:web:24d5e9c303845557f1c710",
-  measurementId: "G-5SS0BVJWTK"
-};
-
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-const USER_ID = "X1Q76ib1XXPWcPp3FSQPLLaTzL83";
 
 interface ExtraFeeCard {
   id: string;
@@ -104,7 +93,7 @@ const getClassCreationMonth = (cls: any): string | null => {
   return earliestStudentMonth || null;
 };
 
-// Formats raw date string into nice readable format
+// Formats raw date string into readable format
 const formatDisplayDate = (rawDate: string): string => {
   if (!rawDate) return 'N/A';
   try {
@@ -116,7 +105,7 @@ const formatDisplayDate = (rawDate: string): string => {
   }
 };
 
-// AUTOMATIC MONTH SYSTEM (Always Current Month & Previous Month)
+// AUTOMATIC MONTH SYSTEM (Current Month & Previous Month)
 const getDynamicTwoMonths = () => {
   const now = new Date();
   const currDate = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -132,7 +121,7 @@ const getDynamicTwoMonths = () => {
   return [formatMonth(currDate), formatMonth(prevDate)];
 };
 
-// Extracts students in strict numerical sequence
+// Extracts students in strict numerical sequence from Array or Object
 const extractStudentsFromClass = (classData: any): any[] => {
   if (!classData) return [];
   let rawList: any[] = [];
@@ -187,6 +176,9 @@ const calculateProratedFee = (student: any, monthlyFee: number) => {
 export default function ExtraFee() {
   const navigate = useNavigate();
 
+  // Dynamic Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
   // Notification Toast State
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -200,7 +192,18 @@ export default function ExtraFee() {
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<ExtraFeeCard | null>(null);
-  
+  const [isClassPickerOpen, setIsClassPickerOpen] = useState(false);
+  const [classPickerSearch, setClassPickerSearch] = useState('');
+
+  // Premium Month Picker Modal State
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+
+  // Edit Permission Notification Modal State
+  const [permissionNotificationModal, setPermissionNotificationModal] = useState<{
+    student: any;
+    prevPaid: number;
+  } | null>(null);
+
   // Form Inputs
   const [purposeInput, setPurposeInput] = useState('');
   const [feeInput, setFeeInput] = useState('');
@@ -229,9 +232,22 @@ export default function ExtraFee() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // 1. Fetch Classes
+  // 0. Listen to Logged-in User Auth State
   useEffect(() => {
-    const classesRef = collection(db, 'users', USER_ID, 'classes');
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubAuth();
+  }, []);
+
+  // Helper to get active user's document key in Firestore
+  const userDocKey = currentUser?.email || currentUser?.uid;
+
+  // 1. Fetch Classes dynamically from database using logged-in user's Email
+  useEffect(() => {
+    if (!userDocKey) return;
+
+    const classesRef = collection(db, 'users', userDocKey, 'classes');
     const unsub = onSnapshot(classesRef, (snapshot) => {
       const fetched = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
@@ -249,7 +265,7 @@ export default function ExtraFee() {
       }
     });
     return () => unsub();
-  }, []);
+  }, [userDocKey]);
 
   const activeClassObj = useMemo(() => {
     if (!selectedCard) return null;
@@ -279,9 +295,11 @@ export default function ExtraFee() {
     }
   }, [monthOptions, selectedMonth]);
 
-  // 2. Fetch Extra Fee Cards
+  // 2. Fetch Extra Fee Cards dynamically for logged-in user
   useEffect(() => {
-    const cardsRef = collection(db, 'users', USER_ID, 'extra_fee_cards');
+    if (!userDocKey) return;
+
+    const cardsRef = collection(db, 'users', userDocKey, 'extra_fee_cards');
     const unsub = onSnapshot(cardsRef, (snapshot) => {
       const fetched: ExtraFeeCard[] = snapshot.docs.map(docSnap => ({
         id: docSnap.id,
@@ -291,15 +309,15 @@ export default function ExtraFee() {
       setExtraCards(fetched);
     });
     return () => unsub();
-  }, []);
+  }, [userDocKey]);
 
   // 3. Sync Payment Records
   useEffect(() => {
-    if (!selectedCard) {
+    if (!selectedCard || !userDocKey) {
       setPaymentRecords({});
       return;
     }
-    const payDocRef = doc(db, 'users', USER_ID, 'extra_fee_payments', selectedCard.id);
+    const payDocRef = doc(db, 'users', userDocKey, 'extra_fee_payments', selectedCard.id);
     const unsub = onSnapshot(payDocRef, (snap) => {
       if (snap.exists()) {
         setPaymentRecords(snap.data()?.records || {});
@@ -308,7 +326,7 @@ export default function ExtraFee() {
       }
     });
     return () => unsub();
-  }, [selectedCard]);
+  }, [selectedCard, userDocKey]);
 
   // Open Create Modal
   const openCreateModal = () => {
@@ -332,7 +350,7 @@ export default function ExtraFee() {
   // Handle Save / Update Card
   const handleSaveCard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!purposeInput || !feeInput || !selectedClassId) return;
+    if (!purposeInput || !feeInput || !selectedClassId || !userDocKey) return;
 
     const targetClass = classes.find(c => c.id === selectedClassId);
     const cardData = {
@@ -346,7 +364,7 @@ export default function ExtraFee() {
     try {
       if (editingCard) {
         // Update Card
-        const cardDocRef = doc(db, 'users', USER_ID, 'extra_fee_cards', editingCard.id);
+        const cardDocRef = doc(db, 'users', userDocKey, 'extra_fee_cards', editingCard.id);
         await updateDoc(cardDocRef, cardData);
         showToast(`Card "${purposeInput}" updated successfully!`);
         if (selectedCard?.id === editingCard.id) {
@@ -354,7 +372,7 @@ export default function ExtraFee() {
         }
       } else {
         // Create Card
-        const cardsRef = collection(db, 'users', USER_ID, 'extra_fee_cards');
+        const cardsRef = collection(db, 'users', userDocKey, 'extra_fee_cards');
         await addDoc(cardsRef, cardData);
         showToast(`Card "${purposeInput}" created successfully!`);
       }
@@ -372,9 +390,9 @@ export default function ExtraFee() {
 
   // Confirm Delete Card
   const confirmDeleteCard = async () => {
-    if (!deleteModal) return;
+    if (!deleteModal || !userDocKey) return;
     try {
-      await deleteDoc(doc(db, 'users', USER_ID, 'extra_fee_cards', deleteModal.id));
+      await deleteDoc(doc(db, 'users', userDocKey, 'extra_fee_cards', deleteModal.id));
       if (selectedCard?.id === deleteModal.id) setSelectedCard(null);
       showToast(`"${deleteModal.name}" card deleted successfully! ✨`);
       setDeleteModal(null);
@@ -473,15 +491,48 @@ export default function ExtraFee() {
 
   const totalPages = Math.ceil(filteredStudents.length / PAGE_SIZE) || 1;
 
+  // Trigger Edit Button or Direct Pay Button
+  const handleEditClick = (student: any) => {
+    const existingRec = paymentRecords[student.id];
+    const prevPaid = existingRec ? existingRec.paidAmount : 0;
+
+    if (prevPaid > 0) {
+      // Show Permission Notification Modal before allowing edit
+      setPermissionNotificationModal({
+        student,
+        prevPaid
+      });
+    } else {
+      // Directly open payment editor if no previous payment exists
+      setActiveStudent(student);
+      setModalPaidInput((selectedCard?.amount || 0).toString());
+    }
+  };
+
   const openStudentModal = (student: any) => {
+    const existingRec = paymentRecords[student.id];
+    if (existingRec && existingRec.paidAmount > 0) {
+      handleEditClick(student);
+    } else {
+      setActiveStudent(student);
+      const defaultVal = selectedCard?.amount || 0;
+      setModalPaidInput(defaultVal.toString());
+    }
+  };
+
+  // User Approved Edit Permission Notification
+  const confirmPermissionAndOpenEdit = () => {
+    if (!permissionNotificationModal) return;
+    const { student, prevPaid } = permissionNotificationModal;
+    setPermissionNotificationModal(null);
+
+    // Open Student Modal for modifying previous record
     setActiveStudent(student);
-    const existing = paymentRecords[student.id];
-    const defaultVal = existing ? existing.paidAmount : (selectedCard?.amount || 0);
-    setModalPaidInput(defaultVal.toString());
+    setModalPaidInput(prevPaid.toString());
   };
 
   const handleSavePayment = async () => {
-    if (!selectedCard || !activeStudent) return;
+    if (!selectedCard || !activeStudent || !userDocKey) return;
 
     const paidVal = Number(modalPaidInput) || 0;
     const reqAmount = selectedCard.amount;
@@ -498,7 +549,7 @@ export default function ExtraFee() {
     };
 
     try {
-      const payDocRef = doc(db, 'users', USER_ID, 'extra_fee_payments', selectedCard.id);
+      const payDocRef = doc(db, 'users', userDocKey, 'extra_fee_payments', selectedCard.id);
       await setDoc(payDocRef, {
         cardId: selectedCard.id,
         records: updatedMap,
@@ -515,10 +566,18 @@ export default function ExtraFee() {
   const isModalStudentInFirstMonth = activeModalStudentAdmissionMonth === selectedMonth;
   const modalProratedDetails = activeStudent && selectedCard ? calculateProratedFee(activeStudent, selectedCard.amount) : null;
 
+  const currentSelectedClassObj = classes.find(c => c.id === selectedClassId);
+
+  const filteredPickerClasses = useMemo(() => {
+    return classes.filter(c => (c.name || '').toLowerCase().includes(classPickerSearch.toLowerCase()));
+  }, [classes, classPickerSearch]);
+
+  const selectedMonthObj = monthOptions.find(m => m.value === selectedMonth) || monthOptions[0];
+
   return (
     <div className="min-h-screen transition-colors duration-300 p-4 sm:p-6 lg:p-8 pb-24 bg-slate-50 dark:bg-black text-slate-800 dark:text-slate-100">
       
-      {/* BEAUTIFUL SUCCESS & ACTION TOAST NOTIFICATION */}
+      {/* SUCCESS & ACTION TOAST NOTIFICATION */}
       {toastMessage && (
         <div className="fixed top-5 right-5 z-[100] animate-in slide-in-from-top-5 duration-300">
           <div className="flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_10px_30px_rgba(249,115,22,0.3)] border border-amber-300/40">
@@ -528,41 +587,49 @@ export default function ExtraFee() {
         </div>
       )}
 
-      {/* HEADER SECTION */}
-      <div className="max-w-7xl mx-auto flex items-center justify-between mb-8 gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (selectedCard) {
-                setSelectedCard(null);
-              } else {
-                navigate('/fees');
-              }
-            }}
-            className="flex items-center justify-center h-11 w-11 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_4px_15px_rgba(249,115,22,0.3)] hover:scale-105 active:scale-95 transition-all"
-            title="Go Back"
-          >
-            <ArrowLeft className="h-5 w-5 stroke-[3]" />
-          </button>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black flex items-center gap-2 text-slate-900 dark:text-white">
-              {selectedCard ? selectedCard.purpose : 'Extra Expenditures'}
-              <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
-              {selectedCard ? `Class: ${selectedCard.className} • PKR ${selectedCard.amount}` : 'Manage custom charges, trip fees, uniforms or annual funds'}
-            </p>
+      {/* HEADER CARD */}
+      <div className="max-w-7xl mx-auto mb-8">
+        <div className="relative overflow-hidden rounded-[2.5rem] p-6 sm:p-8 bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-xl border border-orange-200/80 dark:border-orange-500/20 shadow-[0_10px_35px_rgba(249,115,22,0.12)] dark:shadow-[0_0_35px_rgba(249,115,22,0.1)] transition-all duration-500 hover:shadow-[0_15px_45px_rgba(249,115,22,0.18)] dark:hover:shadow-[0_0_45px_rgba(249,115,22,0.15)] group">
+          
+          <div className="absolute -top-24 -left-24 w-60 h-60 bg-gradient-to-br from-orange-400/20 to-amber-300/0 rounded-full blur-3xl pointer-events-none animate-pulse" />
+          <div className="absolute -bottom-20 -right-20 w-60 h-60 bg-gradient-to-tl from-amber-500/15 to-orange-400/0 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex items-center justify-between gap-6 flex-wrap">
+            <div className="flex items-center gap-4 sm:gap-5">
+              <button
+                onClick={() => {
+                  if (selectedCard) {
+                    setSelectedCard(null);
+                  } else {
+                    navigate('/fees');
+                  }
+                }}
+                className="flex items-center justify-center h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-gradient-to-tr from-orange-500 to-amber-500 text-white shadow-[0_6px_20px_rgba(249,115,22,0.35)] hover:scale-110 active:scale-95 transition-all duration-300"
+                title="Go Back"
+              >
+                <ArrowLeft className="h-6 w-6 stroke-[3]" />
+              </button>
+              <div>
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black flex items-center gap-2.5 text-slate-900 dark:text-white tracking-tight">
+                  {selectedCard ? selectedCard.purpose : 'Extra Expenditures'}
+                  <Sparkles className="h-6 w-6 text-amber-500 animate-pulse fill-amber-400/20" />
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-bold mt-1">
+                  {selectedCard ? `Class: ${selectedCard.className} • PKR ${selectedCard.amount}` : 'Manage custom charges, trip fees, uniforms or annual funds'}
+                </p>
+              </div>
+            </div>
+
+            {!selectedCard && (
+              <button
+                onClick={openCreateModal}
+                className="flex items-center gap-2.5 px-6 py-3.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-xs sm:text-sm shadow-[0_6px_25px_rgba(249,115,22,0.4)] hover:scale-105 active:scale-95 transition-all duration-300 ml-auto border border-amber-300/30"
+              >
+                <PlusCircle className="h-5 w-5 stroke-[2.5]" /> Add Extra Charge Card
+              </button>
+            )}
           </div>
         </div>
-
-        {!selectedCard && (
-          <button
-            onClick={openCreateModal}
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-xs shadow-[0_4px_20px_rgba(249,115,22,0.35)] hover:scale-105 active:scale-95 transition-all ml-auto"
-          >
-            <PlusCircle className="h-4 w-4" /> Add Extra Charge Card
-          </button>
-        )}
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8">
@@ -692,21 +759,18 @@ export default function ExtraFee() {
                   />
                 </div>
 
-                {/* BOUNDED MONTH SELECTION DROPDOWN */}
-                <div className="relative min-w-[180px]">
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="w-full appearance-none rounded-2xl border-2 border-orange-500 px-4 py-2.5 text-xs font-extrabold text-orange-600 dark:text-orange-500 shadow-sm outline-none focus:border-orange-500 cursor-pointer transition-all bg-white dark:bg-black"
-                  >
-                    {monthOptions.map((m) => (
-                      <option key={m.value} value={m.value} className="bg-white dark:bg-black text-slate-800 dark:text-white">
-                        🗓️ {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronRight className="absolute right-3.5 top-1/2 -translate-y-1/2 rotate-90 h-4 w-4 text-orange-500 pointer-events-none" />
-                </div>
+                {/* MONTH SELECTOR DROPDOWN BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => setIsMonthPickerOpen(true)}
+                  className="min-w-[200px] flex items-center justify-between border-2 border-orange-500 rounded-2xl px-4 py-2.5 text-xs font-extrabold text-orange-600 dark:text-orange-500 shadow-sm outline-none bg-white dark:bg-black hover:bg-orange-50/50 dark:hover:bg-orange-500/10 transition-all cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-orange-500" />
+                    {selectedMonthObj ? selectedMonthObj.label : 'Select Month'}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-orange-500 rotate-90" />
+                </button>
 
                 {/* Gender Toggle Pill */}
                 <div className="flex items-center p-1 rounded-full border text-xs font-extrabold bg-slate-100 dark:bg-black border-slate-200 dark:border-zinc-800">
@@ -816,8 +880,8 @@ export default function ExtraFee() {
                         </div>
                       </div>
 
-                      {/* Dues Pill & Action Button */}
-                      <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800">
+                      {/* Dues Pill & Action Buttons */}
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2">
                         <div className={`px-3 py-1.5 rounded-full border text-xs font-black flex items-center gap-1 ${
                           isPaid
                             ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 border-emerald-200 dark:border-emerald-500/30'
@@ -828,12 +892,24 @@ export default function ExtraFee() {
                           <span>DUES: PKR {Math.max(0, selectedCard.amount - rec.paidAmount)}</span>
                         </div>
 
-                        <button
-                          onClick={() => openStudentModal(st)}
-                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black hover:scale-105 active:scale-95 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.3)] flex items-center gap-1.5"
-                        >
-                          <CreditCard className="h-3.5 w-3.5" /> Pay Dues
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {/* EDIT BUTTON WITH PERMISSION NOTIFICATION */}
+                          <button
+                            onClick={() => handleEditClick(st)}
+                            className="p-2 rounded-xl bg-orange-50 dark:bg-orange-500/10 hover:bg-orange-500 text-orange-600 dark:text-orange-500 hover:text-white transition-all border border-orange-200 dark:border-orange-500/30 shadow-sm"
+                            title="Edit Record with Permission Notification"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+
+                          {/* PAY DUES BUTTON */}
+                          <button
+                            onClick={() => openStudentModal(st)}
+                            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black hover:scale-105 active:scale-95 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.3)] flex items-center gap-1.5"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" /> Pay Dues
+                          </button>
+                        </div>
                       </div>
 
                     </div>
@@ -869,6 +945,137 @@ export default function ExtraFee() {
         )}
 
       </div>
+
+      {/* EDIT PERMISSION NOTIFICATION MODAL */}
+      {permissionNotificationModal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="border border-orange-200 dark:border-orange-500/40 rounded-[2.5rem] p-6 sm:p-8 w-full max-w-md shadow-2xl relative bg-white dark:bg-[#0a0a0a] text-center space-y-6">
+            
+            {/* Bell Icon Banner */}
+            <div className="h-16 w-16 rounded-full bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-orange-500/30">
+              <BellRing className="h-8 w-8 stroke-[2.2]" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                Permission Notification
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed px-2">
+                You are about to edit the previously saved payment record for{' '}
+                <strong className="text-orange-600 dark:text-orange-500 font-extrabold">{permissionNotificationModal.student.name}</strong>.
+              </p>
+            </div>
+
+            {/* Previously Entered Details Card */}
+            <div className="p-4 rounded-2xl bg-amber-50/40 dark:bg-orange-500/10 border border-amber-200/80 dark:border-orange-500/30 text-left text-xs font-extrabold space-y-2">
+              <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
+                <span>Previously Entered Paid:</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm">PKR {permissionNotificationModal.prevPaid}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
+                <span>Total Required Fee:</span>
+                <span className="text-orange-600 dark:text-orange-500 font-black text-sm">PKR {selectedCard?.amount || 0}</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] font-bold text-slate-400 leading-normal">
+              Click <strong className="text-slate-800 dark:text-white font-black">OK</strong> below to grant permission and open the modification editor.
+            </p>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={() => setPermissionNotificationModal(null)}
+                className="flex-1 py-3.5 rounded-full text-xs font-extrabold border transition-all border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmPermissionAndOpenEdit}
+                className="flex-1 py-3.5 rounded-full text-xs font-black bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Check className="h-4 w-4 stroke-[3]" /> OK, Edit Now
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MONTH SELECTOR MODAL */}
+      {isMonthPickerOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="border border-orange-300 dark:border-orange-500/50 rounded-[2.5rem] p-6 w-full max-w-lg shadow-2xl relative bg-white dark:bg-[#0a0a0a] space-y-5">
+            
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/30">
+                  <Calendar className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                    Select Billing Month
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">
+                    Choose month to load records ({monthOptions.length} Available)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsMonthPickerOpen(false)} 
+                className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+              {monthOptions.map((m) => {
+                const isSelected = selectedMonth === m.value;
+
+                return (
+                  <div
+                    key={m.value}
+                    onClick={() => setSelectedMonth(m.value)}
+                    className={`cursor-pointer rounded-3xl p-4 border-2 transition-all flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'border-orange-500 bg-orange-50/20 dark:bg-orange-500/10 shadow-md shadow-orange-500/10'
+                        : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-black hover:border-orange-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-7 w-7 rounded-full flex items-center justify-center transition-all ${
+                        isSelected ? 'bg-orange-500 text-white' : 'border-2 border-slate-300 dark:border-zinc-700 bg-transparent'
+                      }`}>
+                        {isSelected ? <Check className="h-4 w-4 stroke-[3]" /> : null}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                          🗓️ {m.label}
+                        </h4>
+                        <span className="text-[10px] font-black tracking-wider uppercase text-slate-400 block mt-0.5">
+                          PERIOD: {m.value}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="px-4 py-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black shadow-md shadow-orange-500/20">
+                      Active
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setIsMonthPickerOpen(false)}
+              className="w-full py-4 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-sm shadow-[0_6px_25px_rgba(249,115,22,0.35)] hover:scale-[1.01] active:scale-95 transition-all flex justify-center items-center gap-2"
+            >
+              <Check className="h-5 w-5 stroke-[3]" /> OK
+            </button>
+
+          </div>
+        </div>
+      )}
 
       {/* USER PERMISSION DELETION CONFIRMATION MODAL */}
       {deleteModal && (
@@ -908,7 +1115,7 @@ export default function ExtraFee() {
       {/* CREATE & EDIT EXTRA FEE CARD MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="border border-slate-200 dark:border-orange-500 rounded-3xl p-6 w-full max-w-md shadow-2xl relative bg-white dark:bg-[#050505]">
+          <div className="border border-slate-200 dark:border-orange-500/50 rounded-3xl p-6 w-full max-w-md shadow-2xl relative bg-white dark:bg-[#050505]">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-black flex items-center gap-2 text-slate-800 dark:text-white">
                 {editingCard ? <Edit2 className="h-5 w-5 text-orange-500" /> : <PlusCircle className="h-5 w-5 text-orange-500" />}
@@ -944,18 +1151,22 @@ export default function ExtraFee() {
                 />
               </div>
 
+              {/* CLASS DROPDOWN TRIGGER */}
               <div>
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 block">Select Class</label>
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="w-full border rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-orange-500 bg-slate-50 dark:bg-black border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-white"
-                  required
+                <button
+                  type="button"
+                  onClick={() => setIsClassPickerOpen(true)}
+                  className="w-full flex items-center justify-between border-2 border-orange-500/80 rounded-2xl px-4 py-3 text-xs font-extrabold bg-orange-50/20 dark:bg-black border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-white hover:border-orange-500 transition-all text-left shadow-sm"
                 >
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  <span className="flex items-center gap-2">
+                    <GraduationCap className="h-4 w-4 text-orange-500" />
+                    {currentSelectedClassObj ? currentSelectedClassObj.name : 'Choose a Class'}
+                  </span>
+                  <span className="text-[10px] bg-orange-500 text-white font-black px-2.5 py-1 rounded-full">
+                    Change
+                  </span>
+                </button>
               </div>
 
               <button
@@ -969,7 +1180,102 @@ export default function ExtraFee() {
         </div>
       )}
 
-      {/* STUDENT PAYMENT MODAL */}
+      {/* SELECT CLASS MODAL */}
+      {isClassPickerOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/50 dark:bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="border border-orange-300 dark:border-orange-500/50 rounded-[2.5rem] p-6 w-full max-w-lg shadow-2xl relative bg-white dark:bg-[#0a0a0a] space-y-5">
+            
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/30">
+                  <GraduationCap className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                    Select Class Product
+                  </h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">
+                    Choose class to load items ({classes.length} Available)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsClassPickerOpen(false)} 
+                className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500" />
+              <input
+                type="text"
+                placeholder="Filter products by name or code..."
+                value={classPickerSearch}
+                onChange={(e) => setClassPickerSearch(e.target.value)}
+                className="w-full border-2 border-orange-200 dark:border-orange-500/30 rounded-full py-3 pl-11 pr-4 text-xs font-extrabold outline-none bg-slate-50/50 dark:bg-black text-slate-800 dark:text-white focus:border-orange-500 transition-colors"
+              />
+            </div>
+
+            <div className="max-h-64 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+              {filteredPickerClasses.length === 0 ? (
+                <div className="text-center py-8 text-xs font-extrabold text-slate-400">
+                  No class found
+                </div>
+              ) : (
+                filteredPickerClasses.map((cls) => {
+                  const isSelected = selectedClassId === cls.id;
+                  const studentCount = (cls.students || []).length;
+                  const displayFee = cls.monthlyFee || cls.fee || cls.amount || feeInput || 0;
+
+                  return (
+                    <div
+                      key={cls.id}
+                      onClick={() => setSelectedClassId(cls.id)}
+                      className={`cursor-pointer rounded-3xl p-4 border-2 transition-all flex items-center justify-between gap-3 ${
+                        isSelected
+                          ? 'border-orange-500 bg-orange-50/20 dark:bg-orange-500/10 shadow-md shadow-orange-500/10'
+                          : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-black hover:border-orange-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-7 w-7 rounded-full flex items-center justify-center transition-all ${
+                          isSelected ? 'bg-orange-500 text-white' : 'border-2 border-slate-300 dark:border-zinc-700 bg-transparent'
+                        }`}>
+                          {isSelected ? <Check className="h-4 w-4 stroke-[3]" /> : null}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                            {cls.name}
+                          </h4>
+                          <span className="text-[10px] font-black tracking-wider uppercase text-slate-400 block mt-0.5">
+                            STUDENTS: {studentCount} UNITS
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black shadow-md shadow-orange-500/20">
+                        Rs. {displayFee}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => setIsClassPickerOpen(false)}
+              className="w-full py-4 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-sm shadow-[0_6px_25px_rgba(249,115,22,0.35)] hover:scale-[1.01] active:scale-95 transition-all flex justify-center items-center gap-2"
+            >
+              <Check className="h-5 w-5 stroke-[3]" /> OK
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* STUDENT PAYMENT / MODIFICATION EDITOR MODAL */}
       {activeStudent && selectedCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="border border-slate-200 dark:border-orange-500 rounded-3xl p-6 w-full max-w-md shadow-2xl relative bg-white dark:bg-[#050505]">
