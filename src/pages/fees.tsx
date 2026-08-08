@@ -18,46 +18,27 @@ import {
   RefreshCw,
   X,
   CreditCard,
-  ArrowRight,
   ArrowLeft,
   Sparkles,
   Calculator,
   PlusCircle,
-  Layers
+  Layers,
+  Search,
+  Check
 } from 'lucide-react';
 
-// Firebase Imports
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+// Firebase Imports (Direct import from lib/firebase - No hardcoded config)
+import { db, auth } from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
-  getFirestore,
   doc,
   setDoc,
   getDoc,
+  deleteDoc,
   collection,
   onSnapshot,
-  query,
-  where,
-  getDocs,
-  deleteDoc
+  getDocs
 } from 'firebase/firestore';
-
-// ----------------------------------------------------------------------
-// FIREBASE INITIALIZATION
-// ----------------------------------------------------------------------
-const firebaseConfig = {
-  apiKey: "AIzaSyAmHi20OGNTeUXjuXO_weF8XKEa3KP7oYE",
-  authDomain: "tuition-management-b9e2f.firebaseapp.com",
-  projectId: "tuition-management-b9e2f",
-  storageBucket: "tuition-management-b9e2f.firebasestorage.app",
-  messagingSenderId: "634395063857",
-  appId: "1:634395063857:web:24d5e9c303845557f1c710",
-  measurementId: "G-5SS0BVJWTK"
-};
-
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-const auth = getAuth(app);
 
 interface StudentFeeRecord {
   status: 'PAID' | 'UNPAID' | 'PARTIAL';
@@ -66,7 +47,7 @@ interface StudentFeeRecord {
   previousMonthDues: number;
 }
 
-// Safely extracts YYYY-MM from student joining/admission date
+// Extract YYYY-MM from student joining/admission date
 const getStudentAdmissionMonth = (student: any): string | null => {
   const rawDate = student?.joiningDate || student?.admissionDate || student?.createdAt || student?.date;
   if (!rawDate) return null;
@@ -81,7 +62,7 @@ const getStudentAdmissionMonth = (student: any): string | null => {
   }
 };
 
-// Formats raw date string into readable format (e.g. 15 Jul 2026)
+// Format raw date into readable string
 const formatDisplayDate = (rawDate: string): string => {
   if (!rawDate) return 'N/A';
   try {
@@ -93,26 +74,7 @@ const formatDisplayDate = (rawDate: string): string => {
   }
 };
 
-// AUTOMATIC MONTH SYSTEM (Current Month & Previous Month)
-const getDynamicTwoMonths = () => {
-  const now = new Date();
-  
-  // Current Month (1st Date of current month)
-  const currDate = new Date(now.getFullYear(), now.getMonth(), 1);
-  // Previous Month
-  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-
-  const formatMonth = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    return { label, value: `${y}-${m}` };
-  };
-
-  return [formatMonth(currDate), formatMonth(prevDate)];
-};
-
-// Utility Function: Month Offset Calculator
+// Month Offset Calculator
 const getMonthOffset = (monthStr: string, offset: number) => {
   const [year, month] = monthStr.split('-').map(Number);
   const date = new Date(year, month - 1 + offset, 1);
@@ -121,7 +83,7 @@ const getMonthOffset = (monthStr: string, offset: number) => {
   return `${y}-${m}`;
 };
 
-// UNIVERSAL HELPER TO SAFELY EXTRACT STUDENTS FROM ANY DATA FORMAT
+// EXTRACT STUDENTS FROM ANY DATA FORMAT
 const extractStudentsFromClass = (classData: any): any[] => {
   if (!classData) return [];
   
@@ -151,7 +113,7 @@ const extractStudentsFromClass = (classData: any): any[] => {
   return [];
 };
 
-// HELPER: Calculates prorated daily fee for student's first month
+// PRORATED FEE CALCULATOR
 const calculateProratedFee = (student: any, monthlyFee: number) => {
   const rawDate = student?.joiningDate || student?.admissionDate || student?.createdAt || student?.date;
   if (!rawDate) return null;
@@ -182,7 +144,6 @@ const calculateProratedFee = (student: any, monthlyFee: number) => {
 export default function Fees() {
   const location = useLocation();
   const navigate = useNavigate();
-  // Jani yahan default mode false set kar diya hai
   const [isDark, setIsDark] = useState(false);
 
   // Dynamic Auth State
@@ -193,6 +154,12 @@ export default function Fees() {
   const [selectedClassId, setSelectedClassId] = useState('');
   const [feeMap, setFeeMap] = useState<Record<string, StudentFeeRecord>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [hasPrevMonthRecords, setHasPrevMonthRecords] = useState(false);
+
+  // Selector Modal States
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [isMonthModalOpen, setIsMonthModalOpen] = useState(false);
+  const [classSearchQuery, setClassSearchQuery] = useState('');
 
   // Filters & Pagination States
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'UNPAID' | 'PARTIAL'>('ALL');
@@ -200,22 +167,60 @@ export default function Fees() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  // Modal State
+  // Payment Modal State
   const [activeModalStudent, setActiveModalStudent] = useState<any | null>(null);
   const [modalPaidInput, setModalPaidInput] = useState<string>('');
   const [modalPrevDuesInput, setModalPrevDuesInput] = useState<string>('0');
 
-  // Month Options
-  const monthOptions = useMemo(() => getDynamicTwoMonths(), []);
+  const currentClass = useMemo(() => {
+    return classes.find((c) => c.id === selectedClassId) || { id: '', name: 'Select Class', students: [], monthlyFee: 0 };
+  }, [selectedClassId, classes]);
+
+  // DYNAMIC 2-MONTH DROPDOWN LOGIC
+  const monthOptions = useMemo(() => {
+    const now = new Date();
+    const currDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const formatMonth = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return { label, value: `${y}-${m}` };
+    };
+
+    const currentMonthObj = formatMonth(currDate);
+    const prevMonthObj = formatMonth(prevDate);
+
+    const rawStudents = currentClass?.students || [];
+    const hasStudentInOrBeforePrevMonth = rawStudents.some((s: any) => {
+      const adm = getStudentAdmissionMonth(s);
+      return adm && adm <= prevMonthObj.value;
+    });
+
+    // August 2026: If no record or admission for July, show only August
+    if (!hasPrevMonthRecords && !hasStudentInOrBeforePrevMonth) {
+      return [currentMonthObj];
+    }
+
+    // September/October: Show 2 months
+    return [currentMonthObj, prevMonthObj];
+  }, [currentClass.students, hasPrevMonthRecords]);
+
   const [selectedMonth, setSelectedMonth] = useState<string>(() => monthOptions[0]?.value);
 
+  useEffect(() => {
+    if (monthOptions.length > 0 && !monthOptions.some(m => m.value === selectedMonth)) {
+      setSelectedMonth(monthOptions[0].value);
+    }
+  }, [monthOptions, selectedMonth]);
+
   // ----------------------------------------------------------------------
-  // 0. AUTH LISTENER (DYNAMIC USER ID FOR LOGGED IN EMAIL)
+  // AUTH LISTENER
   // ----------------------------------------------------------------------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // Preference given to email as Firestore document ID matches logged-in user email
         const userIdentifier = user.email || user.uid;
         setCurrentUserEmail(userIdentifier);
       } else {
@@ -226,7 +231,7 @@ export default function Fees() {
   }, []);
 
   // ----------------------------------------------------------------------
-  // 1. FETCH CLASSES FROM FIREBASE WITH ENHANCED REALTIME LISTENER
+  // FETCH CLASSES FROM FIREBASE
   // ----------------------------------------------------------------------
   useEffect(() => {
     if (!currentUserEmail) {
@@ -253,7 +258,6 @@ export default function Fees() {
         };
       });
 
-      // Sequential Alphabetical/Numerical Sorting for Classes
       fetchedClasses.sort((a, b) => 
         (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
       );
@@ -279,11 +283,43 @@ export default function Fees() {
     return () => unsubscribe();
   }, [currentUserEmail]);
 
-  const currentClass = useMemo(() => {
-    return classes.find((c) => c.id === selectedClassId) || { students: [], monthlyFee: 0 };
-  }, [selectedClassId, classes]);
+  // AUTOMATIC DATABASE CLEANUP FOR OLDER RECORDS (e.g. October deletes August)
+  useEffect(() => {
+    if (!selectedClassId || !currentUserEmail) return;
 
-  // SYNC FEE STATUS DIRECTLY TO FIRESTORE 'classes' DOCUMENT
+    const cleanupOldRecords = async () => {
+      try {
+        const now = new Date();
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevYear = prevDate.getFullYear();
+        const prevMonthNum = String(prevDate.getMonth() + 1).padStart(2, '0');
+        const prevMonthCutoff = `${prevYear}-${prevMonthNum}`;
+
+        const feesCollectionRef = collection(db, 'users', currentUserEmail, 'fees');
+        const snapshot = await getDocs(feesCollectionRef);
+
+        snapshot.docs.forEach(async (docSnap) => {
+          const id = docSnap.id;
+          if (id.startsWith(`${selectedClassId}_`)) {
+            const docMonth = id.replace(`${selectedClassId}_`, '');
+            if (docMonth.length === 7 && docMonth < prevMonthCutoff) {
+              await deleteDoc(doc(db, 'users', currentUserEmail, 'fees', id));
+            }
+          }
+        });
+      } catch (err) {
+        console.error("Error cleaning up old fee records:", err);
+      }
+    };
+
+    cleanupOldRecords();
+  }, [selectedClassId, currentUserEmail]);
+
+  const selectedMonthObj = useMemo(() => {
+    return monthOptions.find(m => m.value === selectedMonth) || monthOptions[0];
+  }, [selectedMonth, monthOptions]);
+
+  // SYNC FEE STATUS DIRECTLY TO FIRESTORE CLASS DOC
   const syncFeeStatusToClassesDoc = async (classId: string, currentFeeMap: Record<string, StudentFeeRecord>) => {
     if (!classId || !currentUserEmail) return;
     try {
@@ -329,14 +365,20 @@ export default function Fees() {
     }
   };
 
-  // ADMISSION MONTH FILTERING
+  // ELIGIBLE STUDENTS & ADMISSION MONTH LOGIC (Students start from their joining month only)
   const eligibleStudentsForMonth = useMemo(() => {
     const rawStudents = currentClass.students || [];
     return rawStudents.filter((student: any) => {
+      const studentName = (student?.name || '').trim();
+      if (!studentName || studentName.toLowerCase() === 'unnamed student') {
+        return false;
+      }
+
       const admissionMonth = getStudentAdmissionMonth(student);
       if (admissionMonth && selectedMonth < admissionMonth) {
         return false;
       }
+
       return true;
     });
   }, [currentClass.students, selectedMonth]);
@@ -344,9 +386,7 @@ export default function Fees() {
   const docKey = `${selectedClassId}_${selectedMonth}`;
   const monthlyFee = Number(currentClass.monthlyFee || 0);
 
-  // ----------------------------------------------------------------------
-  // 2. REALTIME DUAL FEE LISTENER
-  // ----------------------------------------------------------------------
+  // REALTIME FEE LISTENER WITH AUTOMATIC FEE MERGE & CARRYOVER LOGIC
   useEffect(() => {
     if (!selectedClassId || !currentUserEmail) {
       setFeeMap({});
@@ -362,7 +402,42 @@ export default function Fees() {
     let prevDataMap: Record<string, any> = {};
     let currentDataMap: Record<string, any> = {};
 
-    const recalculateFeeMap = () => {
+    const processFeeMergeAndCarryover = async (activeMap: Record<string, StudentFeeRecord>, rawPrevMap: Record<string, any>) => {
+      let prevUpdateNeeded = false;
+      const updatedPrevFeeRecords = { ...rawPrevMap };
+
+      for (const studentKey of Object.keys(activeMap)) {
+        const prevRec = rawPrevMap[studentKey];
+        if (prevRec && Number(prevRec.remainingDues || 0) > 0) {
+          const carryOverDues = Number(prevRec.remainingDues || 0);
+          activeMap[studentKey].previousMonthDues = carryOverDues;
+          activeMap[studentKey].remainingDues = monthlyFee + carryOverDues - activeMap[studentKey].paidAmount;
+
+          // Pichle month ka status update ho kar PAID ho jayega taake double calculation na ho
+          updatedPrevFeeRecords[studentKey] = {
+            ...prevRec,
+            remainingDues: 0,
+            status: 'PAID'
+          };
+          prevUpdateNeeded = true;
+        }
+      }
+
+      if (prevUpdateNeeded) {
+        try {
+          await setDoc(prevFeeRef, {
+            classId: selectedClassId,
+            month: prevMonthStr,
+            feeRecords: updatedPrevFeeRecords,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (err) {
+          console.error("Error updating previous month dues status:", err);
+        }
+      }
+    };
+
+    const recalculateFeeMap = async () => {
       if (!isMounted) return;
       const isOldestMonth = selectedMonth === monthOptions[monthOptions.length - 1]?.value;
       const activeMap: Record<string, StudentFeeRecord> = {};
@@ -403,10 +478,16 @@ export default function Fees() {
 
       setFeeMap(activeMap);
       setIsLoading(false);
+
+      if (Object.keys(prevDataMap).length > 0) {
+        await processFeeMergeAndCarryover(activeMap, prevDataMap);
+      }
     };
 
     const unsubPrev = onSnapshot(prevFeeRef, (snap) => {
-      prevDataMap = snap.exists() ? (snap.data()?.feeRecords || {}) : {};
+      const exists = snap.exists();
+      prevDataMap = exists ? (snap.data()?.feeRecords || {}) : {};
+      setHasPrevMonthRecords(exists && Object.keys(prevDataMap).length > 0);
       recalculateFeeMap();
     });
 
@@ -422,12 +503,8 @@ export default function Fees() {
     };
   }, [selectedClassId, selectedMonth, eligibleStudentsForMonth, monthlyFee, monthOptions, currentUserEmail]);
 
-  // RESET TO PAGE 1 ON FILTER CHANGE
   useEffect(() => setCurrentPage(1), [statusFilter, genderFilter, selectedClassId, selectedMonth]);
 
-  // ----------------------------------------------------------------------
-  // 3. STRICT SEQUENTIAL SORTING
-  // ----------------------------------------------------------------------
   const sortedStudentsList = useMemo(() => {
     const list = [...eligibleStudentsForMonth];
     return list.sort((a: any, b: any) => {
@@ -478,7 +555,11 @@ export default function Fees() {
     return filteredStudents.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [filteredStudents, currentPage]);
 
-  // MODAL HANDLERS
+  const filteredClassesList = useMemo(() => {
+    return classes.filter(c => (c.name || '').toLowerCase().includes(classSearchQuery.toLowerCase()));
+  }, [classes, classSearchQuery]);
+
+  // PAYMENT MODAL HANDLERS
   const openPaymentModal = (student: any) => {
     const key = student.id || student.studentId || student._seqKey;
     const currentRecord = feeMap[key] || {
@@ -506,7 +587,6 @@ export default function Fees() {
     setActiveModalStudent(null);
   };
 
-  // CASCADING PAYMENT SAVE LOGIC
   const handleSaveModalPayment = async () => {
     if (!activeModalStudent || !selectedClassId || !currentUserEmail) return;
 
@@ -587,13 +667,12 @@ export default function Fees() {
       await syncFeeStatusToClassesDoc(selectedClassId, newCurrentMap);
 
     } catch (err) {
-      console.error("Error processing cascading payment:", err);
+      console.error("Error processing payment:", err);
     }
 
     closeModal();
   };
 
-  // BATCH ACTIONS
   const markAllPaid = async () => {
     if (!selectedClassId || !currentUserEmail) return;
     const updated: Record<string, StudentFeeRecord> = {};
@@ -677,7 +756,7 @@ export default function Fees() {
   return (
     <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070c18] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-36 ${isDark ? 'dark' : ''}`}>
 
-      {/* TOP HEADER WITH BACK ARROW & EXTRA CHARGES */}
+      {/* TOP HEADER */}
       <div className="w-full bg-white/60 dark:bg-[#080e1e]/80 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-800/80 sticky top-0 z-40">
         <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
           
@@ -719,7 +798,7 @@ export default function Fees() {
       {/* MAIN WORKSPACE */}
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6 animate-in fade-in duration-500">
 
-        {/* GLOWING HEADER CARD */}
+        {/* HEADER GLOW CARD */}
         <div className="relative group w-full overflow-hidden rounded-2xl p-[2px] transition-all duration-300 border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)]">
           <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 md:p-5 rounded-[14px] bg-white dark:bg-[#0a1020]">
             
@@ -765,13 +844,14 @@ export default function Fees() {
           </div>
         </div>
 
-        {/* SELECTOR CARD WITH CLASS & MONTH DROPDOWN */}
-        <div className="relative overflow-hidden rounded-3xl p-[2px] border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)]">
+        {/* CLASS & MONTH SELECTOR SECTION */}
+        <div className="relative overflow-hidden rounded-3xl p-[2px] border-2 border-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.4)]">
           <div className="rounded-[22px] bg-white dark:bg-[#0a1020] p-6 md:p-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
               <div className="max-w-xl space-y-3">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-orange-500/40 bg-orange-500/10 text-orange-600 dark:text-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.2)]">
-                  <span className="text-[10px] font-black uppercase tracking-wider">Filtered Fee Engine</span>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Filtered Dynamic Fee Engine</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 dark:text-white">
                   Select Class & Month
@@ -779,50 +859,36 @@ export default function Fees() {
                 
                 <div className="flex flex-col sm:flex-row gap-3 max-w-lg pt-1">
                   
-                  {/* CLASS DROPDOWN */}
-                  <div className="relative flex-1">
-                    <select
-                      value={selectedClassId}
-                      onChange={(e) => setSelectedClassId(e.target.value)}
-                      disabled={classes.length === 0}
-                      className="w-full appearance-none rounded-2xl border-2 border-orange-500/80 dark:border-orange-500/60 bg-white dark:bg-[#070d1a] px-4 py-2.5 text-xs font-extrabold text-slate-800 dark:text-slate-100 shadow-[0_0_15px_rgba(249,115,22,0.2)] outline-none focus:border-orange-500 cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {classes.length === 0 ? (
-                        <option value="" disabled className="bg-[#0a1020] text-amber-400 font-bold">
-                          ⚠️ No Classes Created Yet
-                        </option>
-                      ) : (
-                        classes.map((cls) => (
-                          <option key={cls.id} value={cls.id} className="bg-white dark:bg-[#0a1020] text-slate-800 dark:text-slate-100">
-                            {cls.name || 'Unnamed Class'} — PKR {cls.monthlyFee}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <ChevronRight className="absolute right-3.5 top-1/2 -translate-y-1/2 rotate-90 h-4 w-4 text-orange-400 pointer-events-none" />
+                  {/* SELECT CLASS TRIGGER CARD */}
+                  <div 
+                    onClick={() => classes.length > 0 && setIsClassModalOpen(true)}
+                    className="relative flex-1 group cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between w-full rounded-2xl border-2 border-orange-500/80 bg-white dark:bg-[#070d1a] px-4 py-3 shadow-[0_0_15px_rgba(249,115,22,0.25)] hover:border-orange-500 transition-all">
+                      <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 truncate">
+                        {currentClass.name ? `${currentClass.name} — PKR ${currentClass.monthlyFee}` : 'Select Class'}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-orange-400 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
                   </div>
                   
-                  {/* MONTH DROPDOWN */}
-                  <div className="relative flex-1">
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      disabled={classes.length === 0}
-                      className="w-full appearance-none rounded-2xl border-2 border-orange-500/80 dark:border-orange-500/60 bg-white dark:bg-[#070d1a] px-4 py-2.5 text-xs font-extrabold text-orange-600 dark:text-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.2)] outline-none focus:border-orange-500 cursor-pointer transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {monthOptions.map((m) => (
-                        <option key={m.value} value={m.value} className="bg-white dark:bg-[#0a1020] text-slate-800 dark:text-slate-100">
-                          🗓️ {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronRight className="absolute right-3.5 top-1/2 -translate-y-1/2 rotate-90 h-4 w-4 text-orange-400 pointer-events-none" />
+                  {/* SELECT MONTH TRIGGER CARD */}
+                  <div 
+                    onClick={() => setIsMonthModalOpen(true)}
+                    className="relative flex-1 group cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between w-full rounded-2xl border-2 border-orange-500/80 bg-white dark:bg-[#070d1a] px-4 py-3 shadow-[0_0_15px_rgba(249,115,22,0.25)] hover:border-orange-500 transition-all">
+                      <span className="text-xs font-extrabold text-orange-600 dark:text-orange-400 truncate">
+                        🗓️ {selectedMonthObj?.label || 'Select Month'}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-orange-400 group-hover:translate-x-0.5 transition-transform" />
+                    </div>
                   </div>
 
                 </div>
               </div>
 
-              <div className="hidden md:flex items-center justify-center w-60 h-32 bg-white/80 dark:bg-[#070d1a]/80 border-2 border-orange-500/50 rounded-2xl backdrop-blur-md shadow-[0_0_20px_rgba(249,115,22,0.2)] relative overflow-hidden group">
+              <div className="hidden md:flex items-center justify-center w-60 h-32 bg-white/80 dark:bg-[#070d1a]/80 border-2 border-orange-500/50 rounded-2xl backdrop-blur-md shadow-[0_0_20px_rgba(249,115,22,0.25)] relative overflow-hidden group">
                 <div className="text-center p-4 space-y-1 relative z-10">
                   <div className="mx-auto w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)]">
                     <DollarSign className="h-5 w-5" />
@@ -837,7 +903,7 @@ export default function Fees() {
           </div>
         </div>
 
-        {/* ACTION ALERT WHEN NO CLASSES ARE CREATED IN ACADEMY */}
+        {/* NO CLASS NOTICE */}
         {classes.length === 0 && !isLoading && (
           <div className="relative overflow-hidden rounded-2xl p-[2px] border-2 border-orange-500 shadow-[0_0_25px_rgba(249,115,22,0.35)]">
             <div className="bg-white dark:bg-[#0a1020] p-6 rounded-[14px] text-center space-y-3">
@@ -845,10 +911,10 @@ export default function Fees() {
                 <GraduationCap className="h-6 w-6" />
               </div>
               <h3 className="text-lg font-black text-slate-900 dark:text-white">
-                No Classes Found in Academy
+                No Classes Found
               </h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Fees calculate hone aur dikhne ke liye pehle kam az kam ek Class create honi chahiye.
+                Fees load karne ke liye sab se pehle classes create karein.
               </p>
               <button
                 onClick={() => navigate('/departments')}
@@ -860,7 +926,7 @@ export default function Fees() {
           </div>
         )}
 
-        {/* METRICS DASHBOARD GRID */}
+        {/* METRICS GRID */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           <div className="bg-white dark:bg-[#0a1020] border-2 border-orange-500/60 rounded-2xl p-3.5 shadow-[0_0_15px_rgba(249,115,22,0.15)]">
             <span className="text-[10px] font-extrabold text-slate-400 block tracking-wide uppercase">Students</span>
@@ -875,7 +941,7 @@ export default function Fees() {
             <span className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 mt-1 block">{unpaidCount}</span>
           </div>
           <div className="bg-blue-50/70 dark:bg-blue-950/20 border-2 border-blue-500/40 rounded-2xl p-3.5 shadow-[0_0_15px_rgba(59,130,246,0.15)]">
-            <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 block tracking-wide uppercase">Collected Dues</span>
+            <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 block tracking-wide uppercase">Collected</span>
             <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 mt-1 block truncate">PKR {totalCollectedPKR.toLocaleString()}</span>
           </div>
           <div className="bg-amber-50/70 dark:bg-amber-950/20 border-2 border-amber-500/40 rounded-2xl p-3.5 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
@@ -953,12 +1019,12 @@ export default function Fees() {
           </div>
         </div>
 
-        {/* STUDENT FEE CARD LIST */}
+        {/* STUDENT FEE CARDS LIST */}
         <div className="space-y-3.5">
           {paginatedStudents.length === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-[#0a1020] rounded-2xl border-2 border-orange-500/40 shadow-[0_0_15px_rgba(249,115,22,0.15)]">
               <p className="text-xs font-bold text-slate-400">
-                {classes.length === 0 ? 'No classes available to render students.' : 'No students found for this month/filters.'}
+                {classes.length === 0 ? 'No classes available to load students.' : 'No students found for this month/filters.'}
               </p>
             </div>
           ) : (
@@ -1010,7 +1076,7 @@ export default function Fees() {
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-100 truncate">
-                            {student.name || 'Unnamed Student'}
+                            {student.name}
                           </h4>
 
                           {isFirstAdmissionMonth && joiningDateDisplay && (
@@ -1033,7 +1099,7 @@ export default function Fees() {
 
                           {record.previousMonthDues > 0 && (
                             <span className="text-purple-600 dark:text-purple-400 font-extrabold bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
-                              Prev Unpaid: PKR {record.previousMonthDues}
+                              Merged Unpaid Dues: PKR {record.previousMonthDues}
                             </span>
                           )}
                         </div>
@@ -1052,7 +1118,6 @@ export default function Fees() {
                             <span className="text-[9px] font-black uppercase block tracking-wider text-amber-600 dark:text-amber-400">Total Dues</span>
                             <span className="text-xs font-extrabold block">PKR {record.remainingDues.toLocaleString()}</span>
                           </div>
-                          <ArrowRight className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                         </button>
                       ) : (
                         <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-extrabold flex items-center gap-1 shadow-sm">
@@ -1122,7 +1187,159 @@ export default function Fees() {
 
       </main>
 
-      {/* ANIMATED GLOWING PAYMENT MODAL */}
+      {/* SELECT CLASS MODAL */}
+      {isClassModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="relative overflow-hidden bg-white dark:bg-[#0a1020] rounded-3xl p-6 w-full max-w-md border-2 border-orange-500 shadow-[0_0_50px_rgba(249,115,22,0.4)]">
+            
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-10 w-10 rounded-2xl bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.5)]">
+                  <GraduationCap className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Select Class Product</h3>
+                  <p className="text-[11px] font-extrabold text-slate-400">Choose class to load items ({classes.length} Available)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsClassModalOpen(false)}
+                className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Filter Search Input */}
+            <div className="relative mb-4">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400" />
+              <input
+                type="text"
+                placeholder="Filter products by name or code..."
+                value={classSearchQuery}
+                onChange={(e) => setClassSearchQuery(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-[#070d1a] border-2 border-orange-500/40 rounded-full pl-10 pr-4 py-2.5 text-xs font-bold text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:border-orange-500 transition-all shadow-inner"
+              />
+            </div>
+
+            {/* Options List */}
+            <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+              {filteredClassesList.map((cls) => {
+                const isSelected = selectedClassId === cls.id;
+                return (
+                  <div
+                    key={cls.id}
+                    onClick={() => setSelectedClassId(cls.id)}
+                    className={`flex items-center justify-between p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-orange-500 bg-orange-50/20 dark:bg-orange-500/10 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-orange-400 bg-white dark:bg-[#070d1a]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300 dark:border-slate-700'
+                      }`}>
+                        {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white">{cls.name}</h4>
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase">STUDENTS: {cls.students?.length || 0} UNITS</span>
+                      </div>
+                    </div>
+
+                    <span className="px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-extrabold text-xs shadow-md">
+                      Rs. {cls.monthlyFee}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Confirm Button */}
+            <button
+              onClick={() => setIsClassModalOpen(false)}
+              className="w-full mt-5 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black py-3 rounded-full shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 text-xs uppercase tracking-wider hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              <Check className="h-4 w-4 stroke-[3]" /> OK
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* SELECT MONTH MODAL */}
+      {isMonthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="relative overflow-hidden bg-white dark:bg-[#0a1020] rounded-3xl p-6 w-full max-w-md border-2 border-orange-500 shadow-[0_0_50px_rgba(249,115,22,0.4)]">
+            
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-10 w-10 rounded-2xl bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.5)]">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Select Month</h3>
+                  <p className="text-[11px] font-extrabold text-slate-400">Choose fee month ({monthOptions.length} Active Months)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsMonthModalOpen(false)}
+                className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Month Cards Options List */}
+            <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+              {monthOptions.map((m) => {
+                const isSelected = selectedMonth === m.value;
+                return (
+                  <div
+                    key={m.value}
+                    onClick={() => setSelectedMonth(m.value)}
+                    className={`flex items-center justify-between p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-orange-500 bg-orange-50/20 dark:bg-orange-500/10 shadow-sm'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-orange-400 bg-white dark:bg-[#070d1a]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300 dark:border-slate-700'
+                      }`}>
+                        {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white">🗓️ {m.label}</h4>
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase">DYNAMIC 2-MONTH SYSTEM RECORD</span>
+                      </div>
+                    </div>
+
+                    <span className="px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-extrabold text-xs shadow-md">
+                      ACTIVE
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Confirm Button */}
+            <button
+              onClick={() => setIsMonthModalOpen(false)}
+              className="w-full mt-5 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black py-3 rounded-full shadow-[0_0_20px_rgba(249,115,22,0.4)] flex items-center justify-center gap-2 text-xs uppercase tracking-wider hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              <Check className="h-4 w-4 stroke-[3]" /> OK
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* GLOWING PAYMENT MODAL */}
       {activeModalStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="relative overflow-hidden bg-white dark:bg-[#0a1020] rounded-3xl p-6 w-full max-w-md border-2 border-orange-500 shadow-[0_0_50px_rgba(249,115,22,0.4)]">
@@ -1160,8 +1377,8 @@ export default function Fees() {
                   </div>
 
                   <div className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold space-y-1">
-                    <p>Daily Rate: <strong>PKR {modalProratedDetails.dailyRate}/day</strong> ({modalClassFee} ÷ {modalProratedDetails.totalDaysInMonth} Days)</p>
-                    <p>Classes Taken: <strong>{modalProratedDetails.daysStudied} Days</strong> (From {modalProratedDetails.joiningDay}th to end of month)</p>
+                    <p>Daily Rate: <strong>PKR {modalProratedDetails.dailyRate}/day</strong></p>
+                    <p>Classes Taken: <strong>{modalProratedDetails.daysStudied} Days</strong></p>
                   </div>
 
                   <div className="flex items-center gap-2 pt-1">
@@ -1185,7 +1402,7 @@ export default function Fees() {
 
               <div className="grid grid-cols-2 gap-2 bg-slate-100/70 dark:bg-[#070d1a] p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Prev Unpaid Dues</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Merged Prev Dues</span>
                   <span className="text-sm font-black text-purple-600 dark:text-purple-400">PKR {modalPrevDues}</span>
                 </div>
                 <div>

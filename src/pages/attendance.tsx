@@ -1,19 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
-  getFirestore, 
   collection, 
   getDocs, 
   doc, 
-  getDoc, 
   setDoc, 
   query,
   where,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from 'firebase/firestore';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '../lib/firebase';
 import {
   Search,
   Bell,
@@ -43,29 +42,15 @@ import {
   CalendarDays
 } from 'lucide-react';
 
-// Firebase Configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyAmHi20OGNteUXjuXO_weF8XKEa3KP7oYE",
-  authDomain: "tuition-management-b9e2f.firebaseapp.com",
-  projectId: "tuition-management-b9e2f",
-  storageBucket: "tuition-management-b9e2f.firebasestorage.app",
-  messagingSenderId: "634395063857",
-  appId: "1:634395063857:web:24d5e9c303845557f1c710",
-  measurementId: "G-5SS0BVJWTK"
-};
-
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-const auth = getAuth(app);
-
 const ITEMS_PER_PAGE = 10;
 const CLASS_MODAL_ITEMS_PER_PAGE = 7;
 
-// Helper to normalize Firestore class snapshot
+// Helper function to process class documents according to Firestore Schema
 const processClassDoc = (docSnap: any) => {
   const data = docSnap.data();
   const rawStudents = data.students || [];
 
+  // Parse and normalize student data dynamically from Firestore document
   const sortedStudents = rawStudents
     .map((s: any, idx: number) => {
       const rawGenderStr = String(s.gender || '').trim().toLowerCase();
@@ -89,11 +74,11 @@ const processClassDoc = (docSnap: any) => {
 
       return {
         ...s,
-        id: s.id || s.rollNo || idx + 1,
+        id: s.id || s.rollNo || String(idx + 1),
         name: s.name || `Student ${idx + 1}`,
         rollNo: s.rollNo ? String(s.rollNo) : String(idx + 1),
         gender: normalizedGen,
-        feeStatus: s.feeStatus || (idx % 3 === 0 ? 'Unpaid' : 'Paid'),
+        feeStatus: s.feeStatus || 'Unpaid',
         avatar: s.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
       };
     })
@@ -112,37 +97,15 @@ const processClassDoc = (docSnap: any) => {
   };
 };
 
-// Default fallback classes when database subcollection returns empty
-const FALLBACK_CLASSES = [
-  {
-    id: 'class_9a',
-    name: 'Class 9 - Section A',
-    code: '9A',
-    students: [
-      { id: '1', name: 'Ali Khan', rollNo: '1', gender: 'M', feeStatus: 'Paid', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80' },
-      { id: '2', name: 'Ayesha Ahmed', rollNo: '2', gender: 'F', feeStatus: 'Unpaid', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80' },
-      { id: '3', name: 'Hamza Malik', rollNo: '3', gender: 'M', feeStatus: 'Paid', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&auto=format&fit=crop&q=80' },
-      { id: '4', name: 'Zainab Fatima', rollNo: '4', gender: 'F', feeStatus: 'Paid', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80' }
-    ]
-  },
-  {
-    id: 'class_10a',
-    name: 'Class 10 - Section A',
-    code: '10A',
-    students: [
-      { id: '1', name: 'Usman Ghani', rollNo: '1', gender: 'M', feeStatus: 'Paid', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80' },
-      { id: '2', name: 'Sana Tariq', rollNo: '2', gender: 'F', feeStatus: 'Paid', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80' }
-    ]
-  }
-];
-
 export default function Attendance() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
   const [classes, setClasses] = useState<any[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoadingClasses, setIsLoadingClasses] = useState<boolean>(true);
   
   // Class Selection Modal States
   const [isClassModalOpen, setIsClassModalOpen] = useState<boolean>(false);
@@ -180,14 +143,25 @@ export default function Attendance() {
   const [showSkipModal, setShowSkipModal] = useState<boolean>(false);
   const [isSavingSkipped, setIsSavingSkipped] = useState<boolean>(false);
 
-  // LISTEN TO FIREBASE AUTH FOR USER EMAIL
+  // 1. LISTEN TO FIREBASE AUTH & CAPTURE LOGGED IN USER CREDENTIALS
   useEffect(() => {
+    if (!auth) return;
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.email) {
-        setCurrentUserEmail(user.email);
+      if (user) {
+        if (user.email) {
+          setCurrentUserEmail(user.email);
+          localStorage.setItem('userEmail', user.email);
+        }
+        if (user.uid) {
+          setCurrentUserUid(user.uid);
+          localStorage.setItem('userUid', user.uid);
+        }
       } else {
-        const savedEmail = localStorage.getItem('userEmail') || 'admin@gmail.com';
-        setCurrentUserEmail(savedEmail);
+        const savedEmail = localStorage.getItem('userEmail');
+        const savedUid = localStorage.getItem('userUid');
+        if (savedEmail) setCurrentUserEmail(savedEmail);
+        if (savedUid) setCurrentUserUid(savedUid);
       }
     });
 
@@ -214,80 +188,120 @@ export default function Attendance() {
     setYesterdayDate(curr.toISOString().split('T')[0]);
   }, [selectedDate]);
 
-  // 1. FETCH CLASSES WITH MULTI-LEVEL FALLBACK (User Subcollection -> Root -> Default)
+  // 2. REAL-TIME FETCHING OF CLASSES & STUDENTS FROM FIREBASE
   useEffect(() => {
-    const fetchClasses = async () => {
-      try {
-        let fetchedClasses: any[] = [];
-        const emailToUse = currentUserEmail || localStorage.getItem('userEmail') || 'admin@gmail.com';
+    if (!db) {
+      setIsLoadingClasses(false);
+      return;
+    }
 
-        // Attempt 1: Fetch from users/{email}/classes
-        try {
-          const classesRef = collection(db, 'users', emailToUse, 'classes');
-          const snapshot = await getDocs(classesRef);
-          if (!snapshot.empty) {
-            fetchedClasses = snapshot.docs.map(processClassDoc);
-          }
-        } catch (err) {
-          console.warn("User subcollection fetch failed, checking root classes:", err);
-        }
+    setIsLoadingClasses(true);
+    let activeUnsubscribe: (() => void) | null = null;
 
-        // Attempt 2: Fallback to root 'classes' collection
-        if (fetchedClasses.length === 0) {
-          try {
-            const rootClassesRef = collection(db, 'classes');
-            const rootSnapshot = await getDocs(rootClassesRef);
-            if (!rootSnapshot.empty) {
-              fetchedClasses = rootSnapshot.docs.map(processClassDoc);
-            }
-          } catch (err) {
-            console.warn("Root collection fetch failed:", err);
-          }
-        }
+    const email = currentUserEmail || auth?.currentUser?.email || localStorage.getItem('userEmail');
+    const uid = currentUserUid || auth?.currentUser?.uid || localStorage.getItem('userUid');
 
-        // Attempt 3: Fallback Mock Data if Firestore is completely empty
-        if (fetchedClasses.length === 0) {
-          fetchedClasses = FALLBACK_CLASSES;
-        }
-
-        fetchedClasses = fetchedClasses.sort((a, b) => 
+    const handleSnapshot = (snapshot: any) => {
+      if (snapshot && !snapshot.empty) {
+        let fetchedClasses = snapshot.docs.map(processClassDoc);
+        fetchedClasses = fetchedClasses.sort((a: any, b: any) => 
           a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
         );
 
         setClasses(fetchedClasses);
-        if (fetchedClasses.length > 0) {
-          setSelectedClassId(fetchedClasses[0].id);
-        }
-      } catch (error) {
-        console.error("Error fetching classes from Firebase:", error);
-        setClasses(FALLBACK_CLASSES);
-        setSelectedClassId(FALLBACK_CLASSES[0].id);
+        setSelectedClassId((prev) => {
+          if (prev && fetchedClasses.some((c: any) => c.id === prev)) {
+            return prev;
+          }
+          return fetchedClasses.length > 0 ? fetchedClasses[0].id : '';
+        });
+        setIsLoadingClasses(false);
+        return true;
       }
+      return false;
     };
 
-    fetchClasses();
-  }, [currentUserEmail]);
+    const tryAttachListener = () => {
+      const targets: Array<any> = [];
+
+      if (email) {
+        targets.push(collection(db, 'users', email, 'classes'));
+      }
+      if (uid && uid !== email) {
+        targets.push(collection(db, 'users', uid, 'classes'));
+      }
+      targets.push(collection(db, 'classes'));
+
+      const subscribeToTarget = (idx: number) => {
+        if (idx >= targets.length) {
+          setClasses([]);
+          setSelectedClassId('');
+          setIsLoadingClasses(false);
+          return;
+        }
+
+        const ref = targets[idx];
+        activeUnsubscribe = onSnapshot(
+          ref,
+          (snapshot) => {
+            if (snapshot && !snapshot.empty) {
+              handleSnapshot(snapshot);
+            } else {
+              if (activeUnsubscribe) activeUnsubscribe();
+              if (idx + 1 < targets.length) {
+                subscribeToTarget(idx + 1);
+              } else {
+                setClasses([]);
+                setSelectedClassId('');
+                setIsLoadingClasses(false);
+              }
+            }
+          },
+          (error) => {
+            console.warn(`Target ${idx} snapshot error, falling back:`, error);
+            if (activeUnsubscribe) activeUnsubscribe();
+            if (idx + 1 < targets.length) {
+              subscribeToTarget(idx + 1);
+            } else {
+              setClasses([]);
+              setSelectedClassId('');
+              setIsLoadingClasses(false);
+            }
+          }
+        );
+      };
+
+      subscribeToTarget(0);
+    };
+
+    tryAttachListener();
+
+    return () => {
+      if (activeUnsubscribe) activeUnsubscribe();
+    };
+  }, [currentUserEmail, currentUserUid]);
 
   const currentClass = useMemo(() => {
-    return classes.find((c) => c.id === selectedClassId) || classes[0] || { id: '', name: '', code: '', students: [] };
+    return classes.find((c) => c.id === selectedClassId) || { id: '', name: '', code: '', students: [] };
   }, [classes, selectedClassId]);
 
   const [attendanceMap, setAttendanceMap] = useState<Record<string | number, boolean>>({});
   const [yesterdayAttendanceMap, setYesterdayAttendanceMap] = useState<Record<string | number, boolean>>({});
 
-  // 2. FETCH ATTENDANCE RECORD STRICTLY UNDER CURRENT EMAIL TREE
+  // 3. FETCH ATTENDANCE RECORD IN REAL-TIME FROM FIREBASE
   useEffect(() => {
+    if (!db) return;
+    const activeIdentifier = currentUserEmail || currentUserUid || auth?.currentUser?.email || auth?.currentUser?.uid || 'default';
     if (!selectedClassId || !selectedDate || !currentClass.students) return;
 
-    const emailToUse = currentUserEmail || localStorage.getItem('userEmail') || 'admin@gmail.com';
+    let unsubToday: (() => void) | null = null;
+    let unsubYday: (() => void) | null = null;
 
-    const fetchAttendanceRecords = async () => {
-      try {
-        // Fetch Today's Attendance
-        const todayDocId = `${selectedClassId}_${selectedDate}`;
-        const todayRef = doc(db, 'users', emailToUse, 'attendance', todayDocId);
-        const todaySnap = await getDoc(todayRef);
+    try {
+      const todayDocId = `${selectedClassId}_${selectedDate}`;
+      const todayRef = doc(db, 'users', activeIdentifier, 'attendance', todayDocId);
 
+      unsubToday = onSnapshot(todayRef, (todaySnap) => {
         if (todaySnap.exists() && todaySnap.data().attendanceMap) {
           setAttendanceMap(todaySnap.data().attendanceMap);
           setIsAlreadySaved(true);
@@ -299,44 +313,56 @@ export default function Attendance() {
           setAttendanceMap(initialMap);
           setIsAlreadySaved(false);
         }
+      });
 
-        // Fetch Yesterday Attendance
-        if (yesterdayDate) {
-          const ydayDocId = `${selectedClassId}_${yesterdayDate}`;
-          const ydayRef = doc(db, 'users', emailToUse, 'attendance', ydayDocId);
-          const ydaySnap = await getDoc(ydayRef);
-
+      // Fetch Yesterday's Attendance
+      if (yesterdayDate) {
+        const ydayDocId = `${selectedClassId}_${yesterdayDate}`;
+        const ydayRef = doc(db, 'users', activeIdentifier, 'attendance', ydayDocId);
+        unsubYday = onSnapshot(ydayRef, (ydaySnap) => {
           if (ydaySnap.exists() && ydaySnap.data().attendanceMap) {
             setYesterdayAttendanceMap(ydaySnap.data().attendanceMap);
           } else {
             setYesterdayAttendanceMap({});
           }
-        }
-
-        // Fetch Last Saved Attendance Date
-        const attCol = collection(db, 'users', emailToUse, 'attendance');
-        const q = query(
-          attCol,
-          where('classId', '==', selectedClassId),
-          where('date', '<', selectedDate),
-          orderBy('date', 'desc'),
-          limit(1)
-        );
-        const querySnap = await getDocs(q);
-        if (!querySnap.empty) {
-          setLastSavedDate(querySnap.docs[0].data().date);
-        } else {
-          setLastSavedDate(null);
-        }
-
-      } catch (error) {
-        console.error("Error fetching attendance records:", error);
+        });
       }
-    };
 
-    fetchAttendanceRecords();
+      // Fetch Last Saved Attendance Date for Skipped Dates Detection
+      const fetchLastSavedDate = async () => {
+        try {
+          const attCol = collection(db, 'users', activeIdentifier, 'attendance');
+          const q = query(
+            attCol,
+            where('classId', '==', selectedClassId),
+            where('date', '<', selectedDate),
+            orderBy('date', 'desc'),
+            limit(1)
+          );
+          const querySnap = await getDocs(q);
+          if (!querySnap.empty) {
+            setLastSavedDate(querySnap.docs[0].data().date);
+          } else {
+            setLastSavedDate(null);
+          }
+        } catch (e) {
+          console.warn("Could not query last saved date:", e);
+        }
+      };
+
+      fetchLastSavedDate();
+
+    } catch (error) {
+      console.error("Error setting up real-time attendance listeners:", error);
+    }
+
     setIsReadyToSave(false);
-  }, [currentUserEmail, selectedClassId, selectedDate, yesterdayDate, currentClass]);
+
+    return () => {
+      if (unsubToday) unsubToday();
+      if (unsubYday) unsubYday();
+    };
+  }, [currentUserEmail, currentUserUid, selectedClassId, selectedDate, yesterdayDate, currentClass]);
 
   const handleClassChange = (classId: string) => {
     setSelectedClassId(classId);
@@ -532,7 +558,12 @@ export default function Attendance() {
   };
 
   const executeFinalSave = async () => {
-    const emailToUse = currentUserEmail || localStorage.getItem('userEmail') || 'admin@gmail.com';
+    if (!db) {
+      triggerErrorToast("Firebase DB is not initialized.");
+      return;
+    }
+
+    const activeIdentifier = currentUserEmail || currentUserUid || auth?.currentUser?.email || auth?.currentUser?.uid || 'default';
 
     try {
       setIsSavingSkipped(true);
@@ -542,7 +573,7 @@ export default function Attendance() {
         if (holidaySelections[skippedDate]) {
           const { dayName } = getDayDetails(skippedDate);
           const holidayDocId = `${selectedClassId}_${skippedDate}`;
-          const holidayRef = doc(db, 'users', emailToUse, 'attendance', holidayDocId);
+          const holidayRef = doc(db, 'users', activeIdentifier, 'attendance', holidayDocId);
           await setDoc(holidayRef, {
             classId: selectedClassId,
             className: currentClass.name,
@@ -556,7 +587,7 @@ export default function Attendance() {
       }
 
       const recordDocId = `${selectedClassId}_${selectedDate}`;
-      const attDocRef = doc(db, 'users', emailToUse, 'attendance', recordDocId);
+      const attDocRef = doc(db, 'users', activeIdentifier, 'attendance', recordDocId);
 
       await setDoc(attDocRef, {
         classId: selectedClassId,
@@ -650,7 +681,7 @@ export default function Attendance() {
               <ArrowLeft className="h-5 w-5 stroke-[2.5]" />
             </Link>
             <span className="font-black text-lg tracking-tight hidden sm:block bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent">
-              AttendantPro
+              EduTrack
             </span>
           </div>
 
@@ -702,14 +733,19 @@ export default function Attendance() {
                     setClassModalPage(1);
                     setIsClassModalOpen(true);
                   }}
-                  className="w-full flex items-center justify-between rounded-2xl border-2 border-orange-500/80 bg-white/95 dark:bg-[#070b13] px-5 py-3.5 text-sm font-extrabold text-slate-800 dark:text-slate-100 shadow-[0_0_20px_rgba(249,115,22,0.15)] hover:border-orange-500 hover:shadow-[0_0_25px_rgba(249,115,22,0.3)] transition-all duration-300 active:scale-[0.99] group text-left"
+                  disabled={isLoadingClasses}
+                  className="w-full flex items-center justify-between rounded-2xl border-2 border-orange-500/80 bg-white/95 dark:bg-[#070b13] px-5 py-3.5 text-sm font-extrabold text-slate-800 dark:text-slate-100 shadow-[0_0_20px_rgba(249,115,22,0.15)] hover:border-orange-500 hover:shadow-[0_0_25px_rgba(249,115,22,0.3)] transition-all duration-300 active:scale-[0.99] group text-left disabled:opacity-60"
                 >
                   <div className="flex items-center gap-3 truncate">
                     <div className="h-8 w-8 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0 border border-orange-500/20 group-hover:scale-110 transition-transform">
                       <GraduationCap className="h-4 w-4" />
                     </div>
                     <span className="truncate">
-                      {currentClass ? `${currentClass.name} (${currentClass.code})` : 'Select Class'}
+                      {isLoadingClasses 
+                        ? 'Fetching classes from Firebase...' 
+                        : currentClass.name 
+                          ? `${currentClass.name} (${currentClass.code})` 
+                          : 'No Classes Found'}
                     </span>
                   </div>
                   <ChevronRight className="h-5 w-5 text-orange-500 shrink-0 group-hover:translate-x-1 transition-transform" />
@@ -851,9 +887,13 @@ export default function Attendance() {
 
         {/* STUDENT LIST */}
         <div className="space-y-3">
-          {paginatedStudents.length === 0 ? (
+          {isLoadingClasses ? (
             <div className="text-center py-16 bg-white dark:bg-[#0c1222] rounded-3xl border border-slate-200/60 dark:border-slate-800/40">
-              <p className="text-sm font-bold text-slate-400">No students found matching your selected filters.</p>
+              <p className="text-sm font-bold text-orange-500 animate-pulse">Fetching class data from Firebase database...</p>
+            </div>
+          ) : paginatedStudents.length === 0 ? (
+            <div className="text-center py-16 bg-white dark:bg-[#0c1222] rounded-3xl border border-slate-200/60 dark:border-slate-800/40">
+              <p className="text-sm font-bold text-slate-400">No students found matching your selected filters or class.</p>
             </div>
           ) : (
             paginatedStudents.map((student: any) => {
@@ -1028,17 +1068,14 @@ export default function Attendance() {
         </div>
       </main>
 
-      {/* LIGHT THEME, ANIMATED & GLOWING CLASS SELECTION MODAL CARD WITH 7 ITEMS PAGINATION */}
+      {/* CLASS SELECTION MODAL CARD WITH 7 ITEMS PAGINATION */}
       {isClassModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
           
-          {/* Ambient Warm Orange Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-orange-500/20 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Modal Card */}
           <div className="relative bg-white/95 dark:bg-[#0c1222]/95 border-2 border-orange-500/60 rounded-[2.5rem] p-6 max-w-md w-full shadow-[0_0_50px_rgba(249,115,22,0.35)] space-y-5 transform transition-all duration-300 scale-100 overflow-hidden">
             
-            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-orange-500/20 pb-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/30 ring-2 ring-orange-500/20">
@@ -1062,7 +1099,6 @@ export default function Attendance() {
               </button>
             </div>
 
-            {/* Quick Search inside Modal */}
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500" />
               <input
@@ -1082,7 +1118,6 @@ export default function Attendance() {
               )}
             </div>
 
-            {/* Class List (7 Items per page) */}
             <div className="space-y-2 min-h-[350px]">
               {paginatedModalClasses.length === 0 ? (
                 <div className="text-center py-12 text-xs font-bold text-slate-400">
@@ -1139,7 +1174,6 @@ export default function Attendance() {
               )}
             </div>
 
-            {/* Modal Pagination Controls (Fixed 7 Items limit) */}
             {classModalTotalPages > 1 && (
               <div className="flex items-center justify-between border-t border-orange-500/20 pt-4">
                 <button
