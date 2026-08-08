@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,14 +33,17 @@ import {
   CheckCircle2,
   Zap,
   ShieldCheck,
-  Check
+  Check,
+  LogOut
 } from 'lucide-react';
 
 // Firebase Firestore & Auth Imports
 import { collection, getDocs, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 
-// Fallback User ID
+// Fallback User ID / Email Identifiers
+const FALLBACK_USER_EMAIL = 'alitahir243715@gmail.com';
 const FALLBACK_USER_ID = 'X1Q76ib1XXPwCp3FSQPLLaTzL83';
 
 // Helper: Get Current Month Key (YYYY-MM)
@@ -70,6 +73,7 @@ const normalizeDate = (dateStr: string) => {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { departments } = useApp();
   const [isDark, setIsDark] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
@@ -80,6 +84,10 @@ export default function Dashboard() {
   const [showPwaModal, setShowPwaModal] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
+
+  // Logout Overlay & Loading State
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Profile Data State
   const [profileData, setProfileData] = useState<{ name: string; avatarUrl: string }>({
@@ -96,10 +104,26 @@ export default function Dashboard() {
     pendingStudents: 0,
   });
 
+  // Dynamic user identifier prioritize Email (matches Firestore screenshot users/alitahir243715@gmail.com)
+  const userEmail = auth.currentUser?.email || FALLBACK_USER_EMAIL;
   const activeUserId = auth.currentUser?.uid || FALLBACK_USER_ID;
-  const userEmail = auth.currentUser?.email;
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const monthKeyStr = useMemo(() => getCurrentMonthKey(), []);
+
+  // Logout Handler
+  const handleLogoutConfirm = async () => {
+    try {
+      setIsLoggingOut(true);
+      await signOut(auth);
+      setTimeout(() => {
+        navigate('/login');
+      }, 1500);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+      setShowLogoutModal(false);
+    }
+  };
 
   // 0. PWA LISTENERS & DETECT STANDALONE MODE
   useEffect(() => {
@@ -161,13 +185,14 @@ export default function Dashboard() {
   useEffect(() => {
     let unsubscribeUser = () => {};
 
-    if (userEmail) {
-      const emailDocRef = doc(db, 'users', userEmail);
+    const docKey = userEmail || activeUserId;
+    if (docKey) {
+      const emailDocRef = doc(db, 'users', docKey);
       unsubscribeUser = onSnapshot(emailDocRef, (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setProfileData({
-            name: data.teacherName || data.name || userEmail.split('@')[0],
+            name: data.teacherName || data.name || docKey.split('@')[0],
             avatarUrl: data.profileImage || data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
           });
         } else {
@@ -185,19 +210,6 @@ export default function Dashboard() {
       }, (err) => {
         console.error("Error fetching user profile by email:", err);
       });
-    } else {
-      const uidDocRef = doc(db, 'users', activeUserId);
-      unsubscribeUser = onSnapshot(uidDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setProfileData({
-            name: data.teacherName || data.name || 'Teacher',
-            avatarUrl: data.profileImage || data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100',
-          });
-        }
-      }, (err) => {
-        console.error("Error fetching user profile by uid:", err);
-      });
     }
 
     return () => unsubscribeUser();
@@ -206,7 +218,10 @@ export default function Dashboard() {
   // 2. LIVE FIRESTORE DATA SYNC FOR CLASSES & METRICS
   useEffect(() => {
     setLoading(true);
-    const classesRef = collection(db, 'users', activeUserId, 'classes');
+
+    // Primary target identifier path matching users/alitahir243715@gmail.com/classes
+    const userDocKey = userEmail || activeUserId;
+    const classesRef = collection(db, 'users', userDocKey, 'classes');
 
     const unsubscribe = onSnapshot(
       classesRef,
@@ -220,22 +235,27 @@ export default function Dashboard() {
               id: docSnap.id,
               name: data.name || data.className || 'Unnamed Class',
               code: data.code || '',
-              monthlyFee: data.monthlyFee || data.fee || 1500,
-              students: data.students || [],
+              monthlyFee: Number(data.monthlyFee || data.fee || 1500),
+              students: Array.isArray(data.students) ? data.students : (typeof data.students === 'object' && data.students !== null ? Object.values(data.students) : []),
               present: 0,
               absent: 0,
             });
           });
         } else {
-          const rootSnap = await getDocs(collection(db, 'classes'));
-          rootSnap.forEach((docSnap) => {
+          // Fallback to checking by activeUserId path or root classes collection
+          let uidSnap = await getDocs(collection(db, 'users', activeUserId, 'classes'));
+          if (uidSnap.empty) {
+            uidSnap = await getDocs(collection(db, 'classes'));
+          }
+          
+          uidSnap.forEach((docSnap) => {
             const data = docSnap.data();
             loadedClasses.push({
               id: docSnap.id,
               name: data.name || data.className || 'Unnamed Class',
               code: data.code || '',
-              monthlyFee: data.monthlyFee || data.fee || 1500,
-              students: data.students || [],
+              monthlyFee: Number(data.monthlyFee || data.fee || 1500),
+              students: Array.isArray(data.students) ? data.students : (typeof data.students === 'object' && data.students !== null ? Object.values(data.students) : []),
               present: 0,
               absent: 0,
             });
@@ -247,8 +267,11 @@ export default function Dashboard() {
         );
 
         try {
-          let attendanceRef = collection(db, 'users', activeUserId, 'attendance');
+          let attendanceRef = collection(db, 'users', userDocKey, 'attendance');
           let attendanceSnap = await getDocs(attendanceRef);
+          if (attendanceSnap.empty) {
+            attendanceSnap = await getDocs(collection(db, 'users', activeUserId, 'attendance'));
+          }
           if (attendanceSnap.empty) {
             attendanceSnap = await getDocs(collection(db, 'attendance'));
           }
@@ -296,8 +319,13 @@ export default function Dashboard() {
 
           for (const cls of loadedClasses) {
             const feeDocId = `${cls.id}_${monthKeyStr}`;
-            let feeDocRef = doc(db, 'users', activeUserId, 'fees', feeDocId);
+            let feeDocRef = doc(db, 'users', userDocKey, 'fees', feeDocId);
             let feeDocSnap = await getDoc(feeDocRef);
+
+            if (!feeDocSnap.exists()) {
+              feeDocRef = doc(db, 'users', activeUserId, 'fees', feeDocId);
+              feeDocSnap = await getDoc(feeDocRef);
+            }
 
             if (!feeDocSnap.exists()) {
               feeDocRef = doc(db, 'fees', feeDocId);
@@ -358,7 +386,7 @@ export default function Dashboard() {
     );
 
     return () => unsubscribe();
-  }, [activeUserId, todayStr, monthKeyStr]);
+  }, [userEmail, activeUserId, todayStr, monthKeyStr]);
 
   // Dynamic Metrics Array
   const overviewMetrics = [
@@ -371,53 +399,64 @@ export default function Dashboard() {
   return (
     <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070b13] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-28 ${isDark ? 'dark' : ''}`}>
       
-      {/* MINIMAL PREMIUM UTILITY HEADER */}
+      {/* MINIMAL PREMIUM UTILITY HEADER WITH COMBINED GLOWING CARD */}
       <div className="w-full bg-white/40 dark:bg-[#070b13]/40 backdrop-blur-sm border-b border-slate-200/40 dark:border-slate-900/40 sticky top-0 z-40">
-        <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="relative w-48 sm:w-64">
-            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Quick search..."
-              className="w-full rounded-xl border border-slate-200/60 bg-white/60 py-1.5 pl-9 pr-4 text-xs outline-none transition-all focus:border-orange-500 focus:bg-white dark:border-slate-800 dark:bg-[#0c1222] dark:focus:bg-[#0c1222]"
-            />
+        <div className="mx-auto max-w-4xl flex h-16 items-center justify-end px-4 sm:px-6 lg:px-8">
+          
+          {/* ANIMATED & GLOWING SINGLE UTILITIES CARD */}
+          <div className="relative group">
+            {/* Pulsing Glowing Background Gradient Border */}
+            <div className="absolute -inset-0.5 rounded-2xl bg-gradient-to-r from-orange-500 via-amber-500 to-rose-500 opacity-75 blur transition-all duration-500 group-hover:opacity-100 animate-pulse" />
+            
+            {/* Card Content Wrapper */}
+            <div className="relative flex items-center gap-3 rounded-2xl bg-white/90 dark:bg-[#0c1222]/90 backdrop-blur-md px-3.5 py-1.5 border border-orange-500/30 shadow-[0_0_20px_rgba(249,115,22,0.25)]">
+              
+              {/* Light/Dark Toggle Pill */}
+              <button 
+                onClick={() => setIsDark(!isDark)}
+                className="flex h-7 w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30 cursor-pointer"
+              >
+                <div className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
+                  {isDark ? <Moon className="h-3 w-3 fill-current" /> : <Sun className="h-3 w-3 fill-current" />}
+                </div>
+              </button>
+
+              {/* Notification Bell Badge */}
+              <Link 
+                to="/alerts" 
+                className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-[#070b13] transition-all hover:scale-105 active:scale-95"
+              >
+                <Bell className="h-4 w-4" />
+                <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-orange-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#070b13] animate-pulse">
+                  3
+                </span>
+              </Link>
+
+              {/* GLOWING ANIMATED LOGOUT BUTTON */}
+              <button
+                onClick={() => setShowLogoutModal(true)}
+                title="Logout"
+                className="relative group/btn p-2 rounded-xl text-rose-500 hover:text-white bg-rose-500/10 hover:bg-rose-600 transition-all duration-300 hover:shadow-[0_0_15px_rgba(244,63,94,0.6)] hover:scale-105 active:scale-95 cursor-pointer border border-rose-500/20"
+              >
+                <LogOut className="h-4 w-4 transition-transform group-hover/btn:-translate-x-0.5" />
+              </button>
+
+              {/* Dynamic Profile Avatar */}
+              <Link
+                to="/settings"
+                title="View Profile / Settings"
+                className="h-8 w-8 overflow-hidden rounded-full ring-2 ring-orange-500/70 shadow-[0_0_12px_rgba(249,115,22,0.4)] transition-all hover:scale-110 active:scale-95 cursor-pointer block"
+              >
+                <img
+                  src={profileData.avatarUrl}
+                  alt={profileData.name}
+                  className="h-full w-full object-cover"
+                />
+              </Link>
+
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Light/Dark Toggle Pill */}
-            <button 
-              onClick={() => setIsDark(!isDark)}
-              className="flex h-7 w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30"
-            >
-              <div className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
-                {isDark ? <Moon className="h-3 w-3 fill-current" /> : <Sun className="h-3 w-3 fill-current" />}
-              </div>
-            </button>
-
-            {/* Notification Bell Badge */}
-            <Link 
-              to="/alerts" 
-              className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-[#0c1222] transition-all hover:scale-105 active:scale-95"
-            >
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-orange-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#070b13] animate-pulse">
-                3
-              </span>
-            </Link>
-
-            {/* Dynamic Profile Avatar */}
-            <Link
-              to="/settings"
-              title="View Profile / Settings"
-              className="h-8 w-8 overflow-hidden rounded-full ring-2 ring-orange-500/70 shadow-[0_0_12px_rgba(249,115,22,0.4)] transition-all hover:scale-110 active:scale-95 cursor-pointer block"
-            >
-              <img
-                src={profileData.avatarUrl}
-                alt={profileData.name}
-                className="h-full w-full object-cover"
-              />
-            </Link>
-          </div>
         </div>
       </div>
 
@@ -648,6 +687,67 @@ export default function Dashboard() {
           })}
         </nav>
       </div>
+
+      {/* ULTRA UNIQUE GLOWING & ANIMATED CENTERED LOGOUT NOTIFICATION */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="relative w-full max-w-sm">
+            <div className="absolute -inset-1.5 rounded-[38px] bg-gradient-to-r from-rose-600 via-orange-500 to-rose-600 opacity-80 blur-xl animate-pulse" />
+
+            <div className="relative overflow-hidden rounded-[32px] bg-slate-900/95 dark:bg-[#090d16]/95 border border-rose-500/40 p-6 shadow-[0_0_60px_rgba(244,63,94,0.4)] text-white backdrop-blur-2xl animate-in zoom-in-95 duration-300 text-center space-y-5">
+              
+              <button
+                disabled={isLoggingOut}
+                onClick={() => setShowLogoutModal(false)}
+                className="absolute right-4 top-4 z-10 rounded-full p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-rose-600 via-orange-500 to-rose-600 animate-spin [animation-duration:8s] blur-md opacity-70" />
+                <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-rose-600 to-orange-500 text-white shadow-xl ring-2 ring-rose-300/40">
+                  {isLoggingOut ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <LogOut className="h-8 w-8 animate-pulse" />
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-2xl font-black tracking-tight text-white">
+                  {isLoggingOut ? 'Logging Out...' : 'Logging Out?'}
+                </h3>
+                <p className="text-xs text-slate-300 font-medium leading-relaxed px-2">
+                  {isLoggingOut 
+                    ? 'Redirecting you securely to the login screen...' 
+                    : 'Are you sure you want to end your current dashboard session?'}
+                </p>
+              </div>
+
+              {!isLoggingOut && (
+                <div className="pt-2 flex flex-col gap-2.5">
+                  <button
+                    onClick={handleLogoutConfirm}
+                    className="w-full relative group py-3 px-6 rounded-2xl bg-gradient-to-r from-rose-600 via-orange-500 to-rose-600 text-white font-black text-xs shadow-[0_0_25px_rgba(244,63,94,0.6)] hover:shadow-[0_0_35px_rgba(244,63,94,0.9)] hover:scale-[1.02] active:scale-95 transition-all duration-300 cursor-pointer overflow-hidden border border-rose-300/40 flex items-center justify-center gap-2"
+                  >
+                    <span className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
+                    <LogOut className="h-4 w-4" /> Confirm Logout
+                  </button>
+
+                  <button
+                    onClick={() => setShowLogoutModal(false)}
+                    className="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer border border-white/10"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ULTRA UNIQUE GLOWING & ANIMATED CENTERED PWA POPUP NOTIFICATION */}
       {showPwaModal && (

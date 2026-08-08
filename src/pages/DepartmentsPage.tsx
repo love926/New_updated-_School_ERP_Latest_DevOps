@@ -908,7 +908,7 @@ export default function Classes() {
 
       {/* CENTER ANIMATED GLOWING NOTIFICATION TOAST */}
       {toast.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in zoom-in-90 duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in zoom-in-90 duration-200">
           <div className={`bg-white dark:bg-[#0c1222] border rounded-3xl p-6 max-w-xs w-full text-center space-y-3 relative shadow-2xl transition-all duration-300 ${
             toast.type === 'success' 
               ? 'border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.4)]' 
@@ -940,7 +940,7 @@ export default function Classes() {
 
       {/* DELETE CLASS CONFIRMATION MODAL */}
       {deleteConfirmClass && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border border-rose-500/40 rounded-3xl max-w-sm w-full p-6 shadow-[0_0_50px_rgba(244,63,94,0.3)] relative text-center space-y-4">
             
             <div className="w-12 h-12 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.2)]">
@@ -977,7 +977,7 @@ export default function Classes() {
 
       {/* DELETE STUDENT CONFIRMATION MODAL */}
       {deleteConfirmStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border border-rose-500/40 rounded-3xl max-w-sm w-full p-6 shadow-[0_0_50px_rgba(244,63,94,0.3)] relative text-center space-y-4">
             
             <div className="w-12 h-12 bg-rose-500/10 text-rose-500 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.2)]">
@@ -1014,8 +1014,8 @@ export default function Classes() {
 
       {/* MODAL 1: CREATE NEW CLASS */}
       {isCreateClassOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative">
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative my-auto">
             <button
               onClick={() => setIsCreateClassOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
@@ -1071,8 +1071,8 @@ export default function Classes() {
 
       {/* MODAL 2: EDIT CLASS */}
       {editingClass && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative">
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative my-auto">
             <button
               onClick={() => setEditingClass(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
@@ -1130,8 +1130,8 @@ export default function Classes() {
 
       {/* MODAL 3: ADD / EDIT STUDENT */}
       {isAddStudentOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-[0_0_50px_rgba(0,0,0,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.15)] relative space-y-4 max-h-[85vh] overflow-y-auto my-auto">
 
             <div className="flex items-center justify-between">
               <button
