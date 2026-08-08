@@ -594,9 +594,6 @@ export default function Classes() {
                 <div className="space-y-1.5">
                   <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-950 dark:text-white drop-shadow-sm flex items-center gap-3">
                     EduTrack
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-orange-500/10 text-orange-500 border border-orange-500/20">
-                      Academic Core
-                    </span>
                   </h1>
                   <p className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 max-w-xl leading-relaxed">
                     Intelligent Management & Analytics System for Colleges and Universities.
