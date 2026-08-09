@@ -249,15 +249,15 @@ export default function GradingTab({ userId }: GradingTabProps) {
       ) : (
         <>
           {/* MAIN CARD CONTAINER */}
-          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 dark:border-orange-500 rounded-[30px] p-5 sm:p-6 shadow-[0_10px_30px_rgba(249,115,22,0.18)] space-y-5">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 dark:border-orange-500 rounded-[28px] sm:rounded-[30px] p-3.5 sm:p-6 shadow-[0_10px_30px_rgba(249,115,22,0.18)] space-y-5">
             
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-base font-black flex items-center gap-2 text-slate-800 dark:text-slate-100">
-                  <Award className="h-6 w-6 text-orange-500" /> Performance Rating Rules
+                <h3 className="text-sm sm:text-base font-black flex items-center gap-2 text-slate-800 dark:text-slate-100">
+                  <Award className="h-5 w-5 sm:h-6 sm:w-6 text-orange-500 shrink-0" /> Performance Rating Rules
                 </h3>
-                <p className="text-xs text-slate-500 font-medium mt-1">
+                <p className="text-[11px] sm:text-xs text-slate-500 font-medium mt-1">
                   Click any level below to configure automated remarks for monthly reports.
                 </p>
               </div>
@@ -270,28 +270,28 @@ export default function GradingTab({ userId }: GradingTabProps) {
                 return (
                   <div
                     key={item.level}
-                    className={`p-4 rounded-2xl border ${item.bgColor} ${item.borderColor} transition-all duration-200 hover:scale-[1.01] flex items-center justify-between gap-4 cursor-pointer`}
+                    className={`p-3 sm:p-4 rounded-2xl border ${item.bgColor} ${item.borderColor} transition-all duration-200 hover:scale-[1.01] flex items-center justify-between gap-2 sm:gap-4 cursor-pointer`}
                     onClick={() => {
                       setActiveModalLevel(item.level);
                       setEditingId(null);
                       setNewRemarkText('');
                     }}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className={`text-xs font-black px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 shadow-sm ${item.color}`}>
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+                      <div className={`text-[11px] sm:text-xs font-black px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-xl bg-white dark:bg-slate-900 shadow-sm ${item.color} shrink-0`}>
                         {item.level}
                       </div>
-                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      <span className="text-[11px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
                         {item.badgeText}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-extrabold bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
-                        <MessageSquareText className="w-3 h-3 text-orange-500" />
-                        {remarksCount} Presets
+                    <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+                      <span className="text-[10px] font-extrabold bg-white/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 px-2 sm:px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm shrink-0">
+                        <MessageSquareText className="w-3 h-3 text-orange-500 shrink-0" />
+                        <span>{remarksCount} Presets</span>
                       </span>
-                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                     </div>
                   </div>
                 );
@@ -303,7 +303,7 @@ export default function GradingTab({ userId }: GradingTabProps) {
               <button
                 onClick={handleSaveAllToFirestore}
                 disabled={saving}
-                className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black py-4 px-6 rounded-2xl shadow-lg shadow-orange-500/25 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 text-sm uppercase tracking-wider"
+                className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black py-3.5 sm:py-4 px-6 rounded-2xl shadow-lg shadow-orange-500/25 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm uppercase tracking-wider"
               >
                 {saving ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -320,9 +320,9 @@ export default function GradingTab({ userId }: GradingTabProps) {
 
       {/* EDIT / ADD REMARKS MODAL */}
       {activeModalLevel && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="relative w-full max-w-md my-auto rounded-[32px] p-[2.5px] bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.35)]">
-            <div className="bg-white dark:bg-[#0c1222] w-full rounded-[30px] p-5 sm:p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col">
+            <div className="bg-white dark:bg-[#0c1222] w-full rounded-[30px] p-4 sm:p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col">
               
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
                 <span className="text-xs font-black px-3.5 py-1.5 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 shadow-sm">
@@ -337,7 +337,7 @@ export default function GradingTab({ userId }: GradingTabProps) {
               </div>
 
               <div className="space-y-4 overflow-y-auto pr-1 flex-1 pb-2">
-                <div className="bg-slate-50/80 dark:bg-[#070b13] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                <div className="bg-slate-50/80 dark:bg-[#070b13] p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
                   <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     {editingId ? 'Edit Preset Remark' : 'Add New Preset Remark'}
                   </span>
@@ -347,9 +347,9 @@ export default function GradingTab({ userId }: GradingTabProps) {
                       type="button"
                       disabled={availableCategories.length === 0 && !editingId}
                       onClick={() => setIsCategoryPickerOpen(true)}
-                      className="flex-1 flex items-center justify-between bg-white dark:bg-[#111827] text-slate-800 dark:text-slate-100 border-2 border-orange-500/40 hover:border-orange-500 rounded-xl px-3.5 py-2.5 text-xs font-black outline-none shadow-sm transition-all disabled:opacity-50"
+                      className="flex-1 flex items-center justify-between bg-white dark:bg-[#111827] text-slate-800 dark:text-slate-100 border-2 border-orange-500/40 hover:border-orange-500 rounded-xl px-3 sm:px-3.5 py-2.5 text-xs font-black outline-none shadow-sm transition-all disabled:opacity-50 min-w-0"
                     >
-                      <span>
+                      <span className="truncate">
                         {availableCategories.length === 0 && !editingId ? "All Added" : newCategory}
                       </span>
                       <ChevronDown className="w-4 h-4 text-orange-500 shrink-0 ml-1" />
@@ -358,7 +358,7 @@ export default function GradingTab({ userId }: GradingTabProps) {
                     <button
                       onClick={handleSaveRemarkPreset}
                       disabled={availableCategories.length === 0 && !editingId}
-                      className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5 shrink-0 shadow-md shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50"
+                      className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs px-3.5 sm:px-4 py-2.5 rounded-xl flex items-center gap-1.5 shrink-0 shadow-md shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50"
                     >
                       {editingId ? <Save className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                       <span>{editingId ? 'Update' : 'Add'}</span>
@@ -391,13 +391,13 @@ export default function GradingTab({ userId }: GradingTabProps) {
                     return (
                       <div
                         key={preset.id}
-                        className={`p-3.5 rounded-2xl border transition-all duration-200 flex items-center justify-between gap-3 text-xs ${style.card}`}
+                        className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 flex items-center justify-between gap-3 text-xs ${style.card}`}
                       >
-                        <div className="space-y-1.5 flex-1 pr-2">
+                        <div className="space-y-1.5 flex-1 pr-1 min-w-0">
                           <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-lg inline-block ${style.badge}`}>
                             {preset.category}
                           </span>
-                          <p className="text-slate-800 dark:text-slate-200 font-bold pl-0.5 leading-relaxed">
+                          <p className="text-slate-800 dark:text-slate-200 font-bold pl-0.5 leading-relaxed break-words">
                             {preset.remarkText}
                           </p>
                         </div>
@@ -406,17 +406,17 @@ export default function GradingTab({ userId }: GradingTabProps) {
                           <button
                             onClick={() => handleStartEdit(preset)}
                             title="Edit Preset"
-                            className="p-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl border border-emerald-200/60 dark:border-emerald-800/60 transition-colors shadow-sm"
+                            className="p-1.5 sm:p-2 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl border border-emerald-200/60 dark:border-emerald-800/60 transition-colors shadow-sm"
                           >
-                            <Edit3 className="w-4 h-4 stroke-[2.2]" />
+                            <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
                           </button>
 
                           <button
                             onClick={() => setDeleteTargetId(preset.id)}
                             title="Delete Preset"
-                            className="p-2 text-rose-600 dark:text-rose-400 hover:text-rose-700 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-xl border border-rose-200/60 dark:border-rose-800/60 transition-colors shadow-sm"
+                            className="p-1.5 sm:p-2 text-rose-600 dark:text-rose-400 hover:text-rose-700 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-xl border border-rose-200/60 dark:border-rose-800/60 transition-colors shadow-sm"
                           >
-                            <Trash2 className="w-4 h-4 stroke-[2.2]" />
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
                           </button>
                         </div>
                       </div>
@@ -447,7 +447,7 @@ export default function GradingTab({ userId }: GradingTabProps) {
               
               <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center font-black">
+                  <div className="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center font-black shrink-0">
                     <Award className="w-5 h-5" />
                   </div>
                   <div>
