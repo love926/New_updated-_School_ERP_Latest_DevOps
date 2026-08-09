@@ -235,7 +235,7 @@ export default function Inventory() {
         };
       });
 
-      // Sort Categories: Newest created or alphabetized
+      // Sort Categories
       fetchedCategories.sort((a, b) => 
         a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
       );
@@ -269,13 +269,12 @@ export default function Inventory() {
       });
   }, [categoryList, searchQuery]);
 
-  // PRODUCTS FILTERING & SORTING (NEWEST PRODUCTS SHOWN FIRST)
+  // PRODUCTS FILTERING & SORTING
   const sortedAndFilteredProducts = useMemo(() => {
     if (!currentCategory) return [];
 
     let list = [...(currentCategory.products || [])];
 
-    // Ensure Newest Products are Shown First
     list.sort((a, b) => {
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : a.id;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : b.id;
@@ -449,7 +448,7 @@ export default function Inventory() {
     }
   };
 
-  // PRINT INVOICE & STOCK INVENTORY FUNCTION WITH PERMISSION & NOTIFICATION
+  // PRINT INVOICE FUNCTION
   const handleConfirmAndPrint = () => {
     setIsPrintModalOpen(false);
     showCenterNotification('print', 'Preparing PDF...', 'Generating Chaudhary Trader Stock Invoice.');
@@ -949,7 +948,7 @@ export default function Inventory() {
                 <div className="shrink-0 text-right pl-1 min-w-[46px] sm:min-w-[50px]">ACTIONS</div>
               </div>
 
-              {/* TABLE BODY - UNTRUNCATED FULL PRODUCT NAME FIX */}
+              {/* TABLE BODY - FULL UNTRUNCATED PRODUCT NAME FIX */}
               {paginatedProducts.length === 0 ? (
                 <div className="text-center py-8 text-xs font-bold text-slate-400">
                   No products in this category.
@@ -958,9 +957,9 @@ export default function Inventory() {
                 paginatedProducts.map((product) => (
                   <div
                     key={product.id}
-                    className="flex items-center justify-between gap-1 sm:gap-2 px-2 py-2.5 rounded-2xl hover:bg-orange-500/5 dark:hover:bg-slate-900/60 transition-colors border-b border-slate-100 dark:border-slate-800/40 last:border-0 w-full group"
+                    className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 py-2.5 rounded-2xl hover:bg-orange-500/5 dark:hover:bg-slate-900/60 transition-colors border-b border-slate-100 dark:border-slate-800/40 last:border-0 w-full group"
                   >
-                    {/* PRODUCT NAME & IMAGE - FULL UNTRUNCATED NAME FIX */}
+                    {/* PRODUCT NAME & IMAGE - FULL UNTRUNCATED NAME DISPLAY */}
                     <div className="flex items-center gap-2 min-w-0 flex-1 pr-1">
                       <img
                         src={product.avatar}
@@ -968,7 +967,7 @@ export default function Inventory() {
                         className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl object-cover shrink-0 border border-slate-200 dark:border-slate-800 shadow-sm bg-slate-100 dark:bg-slate-900"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-slate-100 leading-snug break-words whitespace-normal">
+                        <p className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-slate-100 leading-tight break-words whitespace-normal">
                           {product.name}
                         </p>
                         <p className="text-[9px] font-bold text-slate-400 mt-0.5 whitespace-nowrap">
