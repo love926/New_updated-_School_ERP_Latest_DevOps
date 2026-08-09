@@ -83,7 +83,7 @@ const getCategoryPerformers = (scores: StudentScore[]) => {
   return selected;
 };
 
-// --- BOTTOM NAVBAR ---
+// --- FIXED BOTTOM NAVBAR (Fit 5 Icons inside Card) ---
 function BottomNavbar() {
   const location = useLocation();
   const navigationTabs = [
@@ -95,8 +95,8 @@ function BottomNavbar() {
   ];
 
   return (
-    <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-      <nav className="pointer-events-auto bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-[0_10px_40px_rgba(0,0,0,0.12)] rounded-full px-5 py-2 flex items-center justify-between gap-6 max-w-md w-full">
+    <div className="fixed bottom-3 left-0 right-0 z-50 flex justify-center px-3 pointer-events-none">
+      <nav className="pointer-events-auto bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-3 py-1.5 flex items-center justify-between max-w-sm w-full">
         {navigationTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = location.pathname === tab.href;
@@ -104,19 +104,19 @@ function BottomNavbar() {
             <Link
               key={tab.id}
               to={tab.href}
-              className="flex flex-col items-center justify-center flex-1 py-1 transition-all group"
+              className="flex flex-col items-center justify-center flex-1 py-0.5 transition-all group"
             >
               <div
-                className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${
+                className={`p-2 rounded-full transition-all duration-300 flex items-center justify-center ${
                   isActive
-                    ? 'bg-orange-500 text-white shadow-md scale-110'
+                    ? 'bg-orange-500 text-white shadow-md scale-105'
                     : 'text-slate-400 bg-transparent group-hover:text-slate-600 dark:group-hover:text-slate-300 group-hover:bg-slate-100 dark:group-hover:bg-slate-800'
                 }`}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-4 w-4" />
               </div>
               <span
-                className={`text-[10px] font-bold mt-1 transition-colors ${
+                className={`text-[9px] font-bold mt-0.5 transition-colors tracking-tight ${
                   isActive ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                 }`}
               >
@@ -359,15 +359,26 @@ export default function QuizManagementPage() {
     setIsCreatingQuiz(true);
   };
 
-  // Score Input Change
-  const handleScoreChange = (studentId: string, val: string) => {
+  // Score Input Change with AUTO-FOCUS NEXT LOGIC
+  const handleScoreChange = (studentId: string, val: string, currentIndex: number) => {
     const numericVal = val === '' ? '' : Math.min(Number(totalMarks), Math.max(0, Number(val)));
     setStudentScores((prev) =>
       prev.map((s) => (s.id === studentId ? { ...s, marksObtained: numericVal } : s))
     );
+
+    // Auto Entry Jump on typing full/valid value
+    if (val !== '' && Number(val) <= totalMarks) {
+      setTimeout(() => {
+        const nextInput = scoreInputRefs.current[currentIndex + 1];
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+      }, 100);
+    }
   };
 
-  // Key Down Handler for Auto-Focus Next Student Input Field
+  // Key Down Handler for Keyboard Controls (Enter, Arrow Up, Arrow Down)
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') {
       e.preventDefault();
@@ -532,7 +543,7 @@ export default function QuizManagementPage() {
   }, [detailSearch, detailGenderFilter]);
 
   return (
-    <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070b13] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-28 ${isDark ? 'dark' : ''}`}>
+    <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070b13] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-32 ${isDark ? 'dark' : ''}`}>
 
       {/* GLOWING NOTIFICATION */}
       {centerNotification && (
@@ -682,7 +693,7 @@ export default function QuizManagementPage() {
                     </button>
                   </div>
 
-                  {/* QUIZ TOPIC & TOTAL MARKS (SHOWN ONLY ON PAGE 1 FOR UNIFORM CARD SIZING) */}
+                  {/* QUIZ TOPIC & TOTAL MARKS */}
                   {formPage === 1 && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-300">
                       <div className="sm:col-span-2">
@@ -761,7 +772,7 @@ export default function QuizManagementPage() {
                     </div>
                   </div>
 
-                  {/* STUDENTS MARKS INPUT LIST (PAGE 1: 7 STUDENTS | PAGE 2+: 9 STUDENTS) */}
+                  {/* STUDENTS MARKS INPUT LIST (AUTO FOCUS NEXT BOX) */}
                   <div className="space-y-3 pt-1">
                     <div className="flex items-center justify-between text-xs font-black text-slate-400">
                       <span>STUDENTS IN SEQUENCE ({filteredStudentsInForm.length})</span>
@@ -801,7 +812,7 @@ export default function QuizManagementPage() {
                                 max={totalMarks}
                                 placeholder="0"
                                 value={st.marksObtained}
-                                onChange={(e) => handleScoreChange(st.id, e.target.value)}
+                                onChange={(e) => handleScoreChange(st.id, e.target.value, idx)}
                                 onKeyDown={(e) => handleInputKeyDown(e, idx)}
                                 className={`w-16 text-center font-black text-sm rounded-xl py-1.5 border outline-none transition-all ${
                                   st.marksObtained !== '' && Number(st.marksObtained) < 8
@@ -982,7 +993,6 @@ export default function QuizManagementPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-md w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
             
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-orange-500 text-white rounded-2xl shadow-md">
@@ -1006,7 +1016,6 @@ export default function QuizManagementPage() {
               </button>
             </div>
 
-            {/* Search Input */}
             <div className="relative">
               <Search className="h-4 w-4 text-orange-500 absolute left-3.5 top-3" />
               <input
@@ -1018,7 +1027,6 @@ export default function QuizManagementPage() {
               />
             </div>
 
-            {/* List of Class Items */}
             <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
               {filteredClassesModal.length === 0 ? (
                 <div className="text-center py-6 text-xs text-slate-400 font-bold">
@@ -1062,7 +1070,6 @@ export default function QuizManagementPage() {
               )}
             </div>
 
-            {/* Action OK Button */}
             <button
               onClick={() => setIsClassModalOpen(false)}
               className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all active:scale-95"
@@ -1078,7 +1085,6 @@ export default function QuizManagementPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-md w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
             
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 bg-orange-500 text-white rounded-2xl shadow-md">
@@ -1102,7 +1108,6 @@ export default function QuizManagementPage() {
               </button>
             </div>
 
-            {/* List of Available Months */}
             <div className="space-y-2.5">
               {availableMonths.map((m) => {
                 const isSelected = selectedMonth === m;
@@ -1140,7 +1145,6 @@ export default function QuizManagementPage() {
               })}
             </div>
 
-            {/* Action OK Button */}
             <button
               onClick={() => setIsMonthModalOpen(false)}
               className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all active:scale-95"
@@ -1151,7 +1155,7 @@ export default function QuizManagementPage() {
         </div>
       )}
 
-      {/* DELETE CONFIRMATION PERMISSION MODAL */}
+      {/* DELETE CONFIRMATION MODAL */}
       {deleteConfirmQuiz && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-rose-500 rounded-3xl p-6 max-w-sm w-full flex flex-col items-center text-center shadow-[0_0_50px_rgba(244,63,94,0.3)] space-y-4">
@@ -1188,12 +1192,11 @@ export default function QuizManagementPage() {
         </div>
       )}
 
-      {/* MODAL: CHAPTER DETAILS WITH 5-STUDENT PAGINATION & ANIMATION */}
+      {/* MODAL: CHAPTER DETAILS WITH PREV / NEXT FIXED SPACING */}
       {detailModalQuiz && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-lg w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pb-20 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-lg w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4 max-h-[85vh] overflow-y-auto">
             
-            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <span className="text-[9px] font-black uppercase tracking-wider bg-orange-100 dark:bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-md">
@@ -1215,7 +1218,6 @@ export default function QuizManagementPage() {
               </button>
             </div>
 
-            {/* Modal Search & Gender Filter */}
             <div className="space-y-2">
               <div className="relative">
                 <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
@@ -1248,8 +1250,7 @@ export default function QuizManagementPage() {
               </div>
             </div>
 
-            {/* Modal Paginated Students List (5 per page with animation) */}
-            <div className="space-y-2 min-h-[280px]">
+            <div className="space-y-2 min-h-[220px]">
               {paginatedModalStudents.length === 0 ? (
                 <div className="text-center py-12 text-xs text-slate-400 font-bold">
                   No students found matching search/filter.
@@ -1285,25 +1286,25 @@ export default function QuizManagementPage() {
               )}
             </div>
 
-            {/* MODAL PAGINATION CONTROLS */}
+            {/* PREVIOUS & NEXT PAGINATION CONTROLS (Positioned above navbar cleanly) */}
             {totalModalPages > 1 && (
               <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   disabled={detailPage === 1}
                   onClick={() => setDetailPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
+                  className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
                 >
                   <ChevronLeft className="h-4 w-4" /> Previous
                 </button>
 
                 <span className="text-xs font-black text-slate-500 dark:text-slate-400">
-                  Page <span className="text-orange-500">{detailPage}</span> of {totalModalPages}
+                  Page <span className="text-orange-500 font-black">{detailPage}</span> of {totalModalPages}
                 </span>
 
                 <button
                   disabled={detailPage >= totalModalPages}
                   onClick={() => setDetailPage((p) => Math.min(totalModalPages, p + 1))}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
+                  className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
                 >
                   Next <ChevronRight className="h-4 w-4" />
                 </button>
