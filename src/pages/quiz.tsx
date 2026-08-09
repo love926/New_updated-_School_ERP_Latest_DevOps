@@ -241,7 +241,7 @@ export default function QuizManagementPage() {
         }
       } catch (error) {
         console.error("Error fetching classes:", error);
-      } font-bold; finally {
+      } finally {
         setLoading(false);
       }
     };
