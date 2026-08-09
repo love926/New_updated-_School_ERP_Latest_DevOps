@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   Award, GraduationCap, Plus, ArrowLeft, Sun, Moon, Home, Users, Wallet,
-  Settings, Sparkles, X, Save, Trash2, Edit3, User, BarChart2, ChevronDown,
-  SlidersHorizontal, Calendar, Eye, Search, ChevronLeft, ChevronRight
+  Settings, Sparkles, X, Save, Trash2, Edit3, BarChart2, ChevronDown,
+  SlidersHorizontal, Calendar, Eye, Search, ChevronLeft, ChevronRight,
+  Check, AlertTriangle
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
@@ -38,14 +39,14 @@ interface ClassItem {
   students: { id: string; rollNo?: number | string; name: string; gender: 'Male' | 'Female' }[];
 }
 
-// Helper: Get Rolling Months (Current & Previous)
-const getRollingMonths = () => {
+// Helper: Get Current & Previous Month Keys
+const getCurrentAndPrevMonthKeys = () => {
   const now = new Date();
   const currentMonthKey = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
   const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = prevDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-  return [currentMonthKey, prevMonthKey];
+  return { currentMonthKey, prevMonthKey };
 };
 
 // Helper: Calculate Performance Breakdown
@@ -139,9 +140,15 @@ export default function QuizManagementPage() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
-  // Month Filtering State
-  const rollingMonths = useMemo(() => getRollingMonths(), []);
-  const [selectedMonth, setSelectedMonth] = useState<string>(rollingMonths[0]);
+  // Class & Month Modal Selectors State
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [classSearchText, setClassSearchText] = useState('');
+  const [isMonthModalOpen, setIsMonthModalOpen] = useState(false);
+
+  // Month Filtering & Available Options
+  const { currentMonthKey, prevMonthKey } = useMemo(() => getCurrentAndPrevMonthKeys(), []);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([currentMonthKey]);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
 
   // Quizzes State
   const [quizzes, setQuizzes] = useState<QuizRecord[]>([]);
@@ -155,19 +162,26 @@ export default function QuizManagementPage() {
   const [totalMarks, setTotalMarks] = useState<number>(10);
   const [studentScores, setStudentScores] = useState<StudentScore[]>([]);
 
-  // Form Filters & Pagination
+  // Refs array for auto-moving cursor down student inputs
+  const scoreInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Form Filters & Dynamic Pagination (Page 1 = 7 Students, Page 2+ = 9 Students)
   const [genderFilter, setGenderFilter] = useState<'All' | 'Male' | 'Female'>('All');
   const [belowThreshold, setBelowThreshold] = useState<string>('');
   const [formPage, setFormPage] = useState(1);
-  const FORM_PAGE_SIZE = 5;
+  const PAGE_1_SIZE = 7;
+  const PAGE_SUBSEQUENT_SIZE = 9;
   const [isSaving, setIsSaving] = useState(false);
 
-  // Modal State for Viewing Full Quiz Details
+  // Modal State for Viewing Full Quiz Details (5 per page)
   const [detailModalQuiz, setDetailModalQuiz] = useState<QuizRecord | null>(null);
   const [detailSearch, setDetailSearch] = useState('');
   const [detailGenderFilter, setDetailGenderFilter] = useState<'All' | 'Male' | 'Female'>('All');
   const [detailPage, setDetailPage] = useState(1);
   const DETAIL_PAGE_SIZE = 5;
+
+  // Confirmation Modal for Deleting Quiz Card
+  const [deleteConfirmQuiz, setDeleteConfirmQuiz] = useState<QuizRecord | null>(null);
 
   // Glowing Notification State
   const [centerNotification, setCenterNotification] = useState<string | null>(null);
@@ -179,7 +193,7 @@ export default function QuizManagementPage() {
     }, 3500);
   };
 
-  // 1. Auth Listener to get Logged-In User Email Dynamically
+  // 1. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -239,7 +253,16 @@ export default function QuizManagementPage() {
     return classes.find((c) => c.id === selectedClassId) || null;
   }, [classes, selectedClassId]);
 
-  // 3. Fetch Quizzes dynamically for selected class
+  // Filtered Classes for Selection Modal
+  const filteredClassesModal = useMemo(() => {
+    return classes.filter(
+      (c) =>
+        c.className.toLowerCase().includes(classSearchText.toLowerCase()) ||
+        c.classCode.toLowerCase().includes(classSearchText.toLowerCase())
+    );
+  }, [classes, classSearchText]);
+
+  // 3. Fetch Quizzes dynamically & Manage Rolling Months Database Logic
   useEffect(() => {
     if (!selectedClassId || !currentUser?.email) return;
 
@@ -249,19 +272,32 @@ export default function QuizManagementPage() {
         const quizzesRef = collection(db, 'users', userEmail!, 'classes', selectedClassId, 'quizzes');
         const querySnapshot = await getDocs(quizzesRef);
         const fetchedQuizzes: QuizRecord[] = [];
-        const allowedMonths = getRollingMonths();
+
+        let hasPrevMonthData = false;
 
         for (const docSnap of querySnapshot.docs) {
           const quizData = docSnap.data() as QuizRecord;
 
-          if (quizData.monthKey && !allowedMonths.includes(quizData.monthKey)) {
+          // Delete quizzes older than Previous Month (keep only current & previous month)
+          if (quizData.monthKey && quizData.monthKey !== currentMonthKey && quizData.monthKey !== prevMonthKey) {
             await deleteDoc(doc(db, 'users', userEmail!, 'classes', selectedClassId, 'quizzes', docSnap.id));
           } else {
+            if (quizData.monthKey === prevMonthKey) {
+              hasPrevMonthData = true;
+            }
             if (quizData.studentScores) {
               quizData.studentScores.sort((a, b) => (Number(a.rollNo) || 0) - (Number(b.rollNo) || 0));
             }
             fetchedQuizzes.push(quizData);
           }
+        }
+
+        // Set Available Dropdown Months
+        if (hasPrevMonthData) {
+          setAvailableMonths([currentMonthKey, prevMonthKey]);
+        } else {
+          setAvailableMonths([currentMonthKey]);
+          setSelectedMonth(currentMonthKey);
         }
 
         fetchedQuizzes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -274,7 +310,7 @@ export default function QuizManagementPage() {
     fetchAndCleanupQuizzes();
     setIsCreatingQuiz(false);
     setEditingQuizId(null);
-  }, [selectedClassId, currentUser]);
+  }, [selectedClassId, currentUser, currentMonthKey, prevMonthKey]);
 
   // Filter quizzes by selected month
   const filteredQuizzesByMonth = useMemo(() => {
@@ -331,6 +367,25 @@ export default function QuizManagementPage() {
     );
   };
 
+  // Key Down Handler for Auto-Focus Next Student Input Field
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextInput = scoreInputRefs.current[currentIndex + 1];
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.select();
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = scoreInputRefs.current[currentIndex - 1];
+      if (prevInput) {
+        prevInput.focus();
+        prevInput.select();
+      }
+    }
+  };
+
   // Filtered Students inside Edit/Create form
   const filteredStudentsInForm = useMemo(() => {
     return studentScores.filter((st) => {
@@ -346,11 +401,19 @@ export default function QuizManagementPage() {
     });
   }, [studentScores, genderFilter, belowThreshold]);
 
-  // Form Pagination Logic (5 Students per page)
-  const totalFormPages = Math.ceil(filteredStudentsInForm.length / FORM_PAGE_SIZE) || 1;
+  // Dynamic Pagination Logic (Page 1 = 7 items, Page 2+ = 9 items)
+  const totalFormPages = useMemo(() => {
+    const total = filteredStudentsInForm.length;
+    if (total <= PAGE_1_SIZE) return 1;
+    return 1 + Math.ceil((total - PAGE_1_SIZE) / PAGE_SUBSEQUENT_SIZE);
+  }, [filteredStudentsInForm]);
+
   const paginatedFormStudents = useMemo(() => {
-    const start = (formPage - 1) * FORM_PAGE_SIZE;
-    return filteredStudentsInForm.slice(start, start + FORM_PAGE_SIZE);
+    if (formPage === 1) {
+      return filteredStudentsInForm.slice(0, PAGE_1_SIZE);
+    }
+    const start = PAGE_1_SIZE + (formPage - 2) * PAGE_SUBSEQUENT_SIZE;
+    return filteredStudentsInForm.slice(start, start + PAGE_SUBSEQUENT_SIZE);
   }, [filteredStudentsInForm, formPage]);
 
   // Reset form page when filter changes
@@ -372,7 +435,6 @@ export default function QuizManagementPage() {
         day: '2-digit',
         year: 'numeric',
       });
-      const currentMonthKey = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
       const validScores = studentScores.filter((s) => s.marksObtained !== '');
       const totalSum = validScores.reduce((acc, curr) => acc + Number(curr.marksObtained), 0);
@@ -400,10 +462,10 @@ export default function QuizManagementPage() {
 
       if (editingQuizId) {
         setQuizzes((prev) => prev.map((q) => (q.id === quizId ? newQuizData : q)));
-        showCenterNotification("✏️ Quiz Marks Updated Successfully!");
+        showCenterNotification(" Quiz Marks Updated Successfully ");
       } else {
         setQuizzes((prev) => [newQuizData, ...prev]);
-        showCenterNotification("🎉 Quiz Saved Successfully!");
+        showCenterNotification(" Quiz Saved Successfully ");
       }
 
       setIsCreatingQuiz(false);
@@ -416,18 +478,23 @@ export default function QuizManagementPage() {
     }
   };
 
-  // Delete Quiz
-  const handleDeleteQuiz = async (quizId: string, e: React.MouseEvent) => {
+  // Open Custom Confirmation Permission Modal
+  const handleRequestDeleteQuiz = (quiz: QuizRecord, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!currentUser?.email) return;
-    if (!window.confirm("Are you sure you want to delete this quiz, mere jaan?")) return;
+    setDeleteConfirmQuiz(quiz);
+  };
+
+  // Execute Confirmed Delete
+  const handleConfirmDeleteQuiz = async () => {
+    if (!deleteConfirmQuiz || !currentUser?.email) return;
 
     try {
       const userEmail = currentUser.email;
-      const quizDocRef = doc(db, 'users', userEmail, 'classes', selectedClassId, 'quizzes', quizId);
+      const quizDocRef = doc(db, 'users', userEmail, 'classes', selectedClassId, 'quizzes', deleteConfirmQuiz.id);
       await deleteDoc(quizDocRef);
-      setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
-      showCenterNotification("🗑️ Quiz Record Deleted Successfully!");
+      setQuizzes((prev) => prev.filter((q) => q.id !== deleteConfirmQuiz.id));
+      setDeleteConfirmQuiz(null);
+      showCenterNotification(" Quiz Record Deleted Successfully!");
     } catch (error) {
       console.error("Error deleting quiz:", error);
     }
@@ -467,7 +534,7 @@ export default function QuizManagementPage() {
   return (
     <div className={`min-h-screen bg-[#f8fafc] dark:bg-[#070b13] text-slate-900 dark:text-slate-100 transition-colors duration-300 pb-28 ${isDark ? 'dark' : ''}`}>
 
-      {/* BEAUTIFUL ADAPTIVE GLOWING NOTIFICATION */}
+      {/* GLOWING NOTIFICATION */}
       {centerNotification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/70 backdrop-blur-md animate-in fade-in zoom-in duration-300 pointer-events-none">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-6 max-w-sm w-full text-center shadow-[0_15px_40px_rgba(249,115,22,0.3)] dark:shadow-[0_0_50px_rgba(249,115,22,0.6)] space-y-3 transform animate-bounce">
@@ -527,36 +594,34 @@ export default function QuizManagementPage() {
           </div>
         ) : (
           <>
-            {/* CLASS SELECTOR CARD */}
-            <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500/40 rounded-3xl p-4 shadow-[0_0_20px_rgba(249,115,22,0.15)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* CLASS SELECTOR CARD BUTTON */}
+            <div 
+              onClick={() => setIsClassModalOpen(true)}
+              className="bg-white dark:bg-[#0c1222] border-2 border-orange-500/40 hover:border-orange-500 rounded-3xl p-4 shadow-[0_0_20px_rgba(249,115,22,0.15)] hover:shadow-[0_0_25px_rgba(249,115,22,0.25)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 cursor-pointer transition-all duration-300 group"
+            >
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-orange-500/10 text-orange-500 rounded-2xl border border-orange-500/20">
+                <div className="p-3 bg-orange-500/10 text-orange-500 rounded-2xl border border-orange-500/20 group-hover:bg-orange-500 group-hover:text-white transition-all">
                   <GraduationCap className="h-6 w-6" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Select Active Class, Mere Jaan
+                    SELECT ACTIVE CLASS, MERE JAAN
                   </label>
-                  <div className="relative mt-0.5">
-                    <select
-                      value={selectedClassId}
-                      onChange={(e) => setSelectedClassId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 font-black text-sm rounded-xl px-3 py-1.5 pr-8 appearance-none outline-none focus:border-orange-500 cursor-pointer"
-                    >
-                      {classes.map((cls) => (
-                        <option key={cls.id} value={cls.id}>
-                          {cls.className} ({cls.classCode})
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="h-4 w-4 text-orange-500 absolute right-2.5 top-2.5 pointer-events-none" />
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="font-black text-slate-900 dark:text-white text-base">
+                      {currentClass ? `${currentClass.className} (${currentClass.classCode})` : 'Select Class'}
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-orange-500 group-hover:translate-y-0.5 transition-transform" />
                   </div>
                 </div>
               </div>
 
               {!isCreatingQuiz && (
                 <button
-                  onClick={handleOpenNewQuiz}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenNewQuiz();
+                  }}
                   className="bg-orange-500 text-white hover:bg-orange-600 px-4 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(249,115,22,0.4)] transition-all active:scale-95"
                 >
                   <Plus className="h-4 w-4" /> New Quiz
@@ -564,27 +629,36 @@ export default function QuizManagementPage() {
               )}
             </div>
 
-            {/* MONTH FILTER DROPDOWN BAR */}
+            {/* MONTH SELECTOR CARD BUTTON */}
             {!isCreatingQuiz && (
-              <div className="flex items-center justify-between bg-white dark:bg-[#0c1222] p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <div className="flex items-center gap-2 text-xs font-black text-slate-500 dark:text-slate-400">
-                  <Calendar className="h-4 w-4 text-orange-500" />
-                  <span>Quiz Records Month:</span>
+              <div 
+                onClick={() => setIsMonthModalOpen(true)}
+                className="bg-white dark:bg-[#0c1222] border-2 border-orange-500/40 hover:border-orange-500 rounded-3xl p-4 shadow-[0_0_20px_rgba(249,115,22,0.15)] hover:shadow-[0_0_25px_rgba(249,115,22,0.25)] flex items-center justify-between gap-3 cursor-pointer transition-all duration-300 group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-orange-500/10 text-orange-500 rounded-2xl border border-orange-500/20 group-hover:bg-orange-500 group-hover:text-white transition-all">
+                    <Calendar className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      SELECT MONTH RECORD
+                    </label>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-black text-slate-900 dark:text-white text-base">
+                        {selectedMonth}
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-orange-500 group-hover:translate-y-0.5 transition-transform" />
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="relative">
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs rounded-xl px-3 py-1.5 pr-8 border border-orange-500/30 appearance-none outline-none cursor-pointer"
-                  >
-                    {rollingMonths.map((m) => (
-                      <option key={m} value={m} className="bg-white dark:bg-[#0c1222] text-slate-900 dark:text-white">
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="h-3.5 w-3.5 text-orange-500 absolute right-2.5 top-2 pointer-events-none" />
+
+                <div className="text-right">
+                  <span className="text-[10px] font-black text-orange-500 uppercase tracking-wider block">
+                    {selectedMonth === currentMonthKey ? 'CURRENT MONTH' : 'PREVIOUS MONTH'}
+                  </span>
+                  <span className="text-xs font-bold text-slate-400">
+                    {filteredQuizzesByMonth.length} Quizzes Found
+                  </span>
                 </div>
               </div>
             )}
@@ -608,36 +682,38 @@ export default function QuizManagementPage() {
                     </button>
                   </div>
 
-                  {/* QUIZ TOPIC & TOTAL MARKS */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="text-[11px] font-black text-slate-400 block mb-1">
-                        Quiz Topic / Chapter Name *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Chapter 10 A"
-                        value={quizTopic}
-                        onChange={(e) => setQuizTopic(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all shadow-sm"
-                      />
-                    </div>
+                  {/* QUIZ TOPIC & TOTAL MARKS (SHOWN ONLY ON PAGE 1 FOR UNIFORM CARD SIZING) */}
+                  {formPage === 1 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-300">
+                      <div className="sm:col-span-2">
+                        <label className="text-[11px] font-black text-slate-400 block mb-1">
+                          Quiz Topic / Chapter Name *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Chapter 10 A"
+                          value={quizTopic}
+                          onChange={(e) => setQuizTopic(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all shadow-sm"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="text-[11px] font-black text-slate-400 block mb-1">
-                        Total Marks *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min={1}
-                        value={totalMarks}
-                        onChange={(e) => setTotalMarks(Number(e.target.value))}
-                        className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all shadow-sm"
-                      />
+                      <div>
+                        <label className="text-[11px] font-black text-slate-400 block mb-1">
+                          Total Marks *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          value={totalMarks}
+                          onChange={(e) => setTotalMarks(Number(e.target.value))}
+                          className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all shadow-sm"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* FILTERS BAR */}
                   <div className="bg-slate-50 dark:bg-[#070b13] p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2">
@@ -685,7 +761,7 @@ export default function QuizManagementPage() {
                     </div>
                   </div>
 
-                  {/* STUDENTS MARKS INPUT LIST (PAGINATED: 5 STUDENTS PER PAGE) */}
+                  {/* STUDENTS MARKS INPUT LIST (PAGE 1: 7 STUDENTS | PAGE 2+: 9 STUDENTS) */}
                   <div className="space-y-3 pt-1">
                     <div className="flex items-center justify-between text-xs font-black text-slate-400">
                       <span>STUDENTS IN SEQUENCE ({filteredStudentsInForm.length})</span>
@@ -698,10 +774,10 @@ export default function QuizManagementPage() {
                       </div>
                     ) : (
                       <div className="space-y-2.5">
-                        {paginatedFormStudents.map((st) => (
+                        {paginatedFormStudents.map((st, idx) => (
                           <div
                             key={st.id}
-                            className="bg-slate-50/90 dark:bg-[#070b13]/90 border border-slate-200 dark:border-slate-800 hover:border-orange-500/50 p-3 rounded-2xl flex items-center justify-between gap-3 transition-all animate-in fade-in duration-200"
+                            className="bg-slate-50/90 dark:bg-[#070b13]/90 border border-slate-200 dark:border-slate-800 hover:border-orange-500/50 p-3 rounded-2xl flex items-center justify-between gap-3 transition-all animate-in fade-in slide-in-from-right-2 duration-300"
                           >
                             <div className="flex items-center gap-3">
                               <div className="h-8 w-8 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center font-black text-xs border border-orange-500/20 shadow-sm">
@@ -719,12 +795,14 @@ export default function QuizManagementPage() {
 
                             <div className="flex items-center gap-1.5">
                               <input
+                                ref={(el) => (scoreInputRefs.current[idx] = el)}
                                 type="number"
                                 min={0}
                                 max={totalMarks}
                                 placeholder="0"
                                 value={st.marksObtained}
                                 onChange={(e) => handleScoreChange(st.id, e.target.value)}
+                                onKeyDown={(e) => handleInputKeyDown(e, idx)}
                                 className={`w-16 text-center font-black text-sm rounded-xl py-1.5 border outline-none transition-all ${
                                   st.marksObtained !== '' && Number(st.marksObtained) < 8
                                     ? 'bg-rose-500/10 border-rose-500 text-rose-500'
@@ -848,7 +926,7 @@ export default function QuizManagementPage() {
                                 <Edit3 className="h-4 w-4" />
                               </button>
                               <button
-                                onClick={(e) => handleDeleteQuiz(quiz.id, e)}
+                                onClick={(e) => handleRequestDeleteQuiz(quiz, e)}
                                 className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 p-1.5 rounded-xl transition-colors"
                                 title="Delete Quiz"
                               >
@@ -899,7 +977,218 @@ export default function QuizManagementPage() {
         )}
       </main>
 
-      {/* MODAL: VIEW ALL STUDENTS WITH 5-STUDENT PAGINATION */}
+      {/* SELECT CLASS BEAUTIFUL CARD MODAL */}
+      {isClassModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-md w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-orange-500 text-white rounded-2xl shadow-md">
+                  <GraduationCap className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Select Class
+                  </h3>
+                  <p className="text-[10px] font-bold text-slate-400">
+                    Choose class to load items ({classes.length} Available)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsClassModalOpen(false)}
+                className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="h-4 w-4 text-orange-500 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                placeholder="Filter classes by name or code..."
+                value={classSearchText}
+                onChange={(e) => setClassSearchText(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-[#070b13] text-slate-900 dark:text-white border border-slate-200 dark:border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all shadow-sm"
+              />
+            </div>
+
+            {/* List of Class Items */}
+            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+              {filteredClassesModal.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-400 font-bold">
+                  No classes found matching search.
+                </div>
+              ) : (
+                filteredClassesModal.map((cls) => {
+                  const isSelected = selectedClassId === cls.id;
+                  return (
+                    <div
+                      key={cls.id}
+                      onClick={() => setSelectedClassId(cls.id)}
+                      className={`p-3.5 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition-all duration-200 ${
+                        isSelected
+                          ? 'border-orange-500 bg-orange-500/5 shadow-[0_0_15px_rgba(249,115,22,0.15)]'
+                          : 'border-slate-200 dark:border-slate-800 hover:border-orange-500/50 bg-slate-50 dark:bg-[#070b13]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`h-6 w-6 rounded-full flex items-center justify-center transition-all ${
+                          isSelected ? 'bg-orange-500 text-white' : 'border-2 border-slate-300 dark:border-slate-700'
+                        }`}>
+                          {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                            {cls.className}
+                          </h4>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            STUDENTS: {cls.students?.length || 0} UNITS • CODE: {cls.classCode}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className="text-xs font-black px-3 py-1 rounded-full bg-orange-500/10 text-orange-500">
+                        Select
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Action OK Button */}
+            <button
+              onClick={() => setIsClassModalOpen(false)}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all active:scale-95"
+            >
+              <Check className="h-4 w-4" /> OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SELECT MONTH BEAUTIFUL CARD MODAL */}
+      {isMonthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-md w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-orange-500 text-white rounded-2xl shadow-md">
+                  <Calendar className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Select Month Record
+                  </h3>
+                  <p className="text-[10px] font-bold text-slate-400">
+                    Choose month to filter quiz data ({availableMonths.length} Available)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsMonthModalOpen(false)}
+                className="h-8 w-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* List of Available Months */}
+            <div className="space-y-2.5">
+              {availableMonths.map((m) => {
+                const isSelected = selectedMonth === m;
+                return (
+                  <div
+                    key={m}
+                    onClick={() => setSelectedMonth(m)}
+                    className={`p-4 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition-all duration-200 ${
+                      isSelected
+                        ? 'border-orange-500 bg-orange-500/5 shadow-[0_0_15px_rgba(249,115,22,0.15)]'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-orange-500/50 bg-slate-50 dark:bg-[#070b13]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-6 w-6 rounded-full flex items-center justify-center transition-all ${
+                        isSelected ? 'bg-orange-500 text-white' : 'border-2 border-slate-300 dark:border-slate-700'
+                      }`}>
+                        {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                          {m}
+                        </h4>
+                        <span className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">
+                          {m === currentMonthKey ? 'CURRENT ACTIVE MONTH' : 'PREVIOUS RECORDED MONTH'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="text-xs font-black px-3 py-1 rounded-full bg-orange-500/10 text-orange-500">
+                      Select
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Action OK Button */}
+            <button
+              onClick={() => setIsMonthModalOpen(false)}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all active:scale-95"
+            >
+              <Check className="h-4 w-4" /> OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION PERMISSION MODAL */}
+      {deleteConfirmQuiz && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-rose-500 rounded-3xl p-6 max-w-sm w-full flex flex-col items-center text-center shadow-[0_0_50px_rgba(244,63,94,0.3)] space-y-4">
+            
+            <div className="h-16 w-16 bg-rose-500/10 dark:bg-rose-500/20 text-rose-500 rounded-full flex items-center justify-center border border-rose-500/30">
+              <AlertTriangle className="h-8 w-8 animate-bounce" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                Delete Quiz Card?
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                Are you sure you want to delete <span className="text-orange-500 font-black">"{deleteConfirmQuiz.topic}"</span>, Please Make Sure?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 w-full pt-2">
+              <button
+                onClick={() => setDeleteConfirmQuiz(null)}
+                className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black py-2.5 rounded-2xl text-xs hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleConfirmDeleteQuiz}
+                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black py-2.5 rounded-2xl text-xs shadow-[0_0_15px_rgba(244,63,94,0.4)] transition-all active:scale-95"
+              >
+                Yes, Delete Card
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CHAPTER DETAILS WITH 5-STUDENT PAGINATION & ANIMATION */}
       {detailModalQuiz && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-lg w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4">
@@ -959,7 +1248,7 @@ export default function QuizManagementPage() {
               </div>
             </div>
 
-            {/* Modal Paginated Students List (5 per page) */}
+            {/* Modal Paginated Students List (5 per page with animation) */}
             <div className="space-y-2 min-h-[280px]">
               {paginatedModalStudents.length === 0 ? (
                 <div className="text-center py-12 text-xs text-slate-400 font-bold">
@@ -969,7 +1258,7 @@ export default function QuizManagementPage() {
                 paginatedModalStudents.map((st, idx) => (
                   <div
                     key={st.id}
-                    className="bg-slate-50 dark:bg-[#070b13] border border-slate-200 dark:border-slate-800 p-3 rounded-2xl flex items-center justify-between gap-3 animate-in fade-in duration-200"
+                    className="bg-slate-50 dark:bg-[#070b13] border border-slate-200 dark:border-slate-800 p-3 rounded-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-right-2 duration-300"
                   >
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-full bg-orange-500/10 text-orange-500 flex items-center justify-center font-black text-xs border border-orange-500/20">
