@@ -23,6 +23,7 @@ import {
   Filter,
   Sparkles,
   Award,
+  Search,
 } from 'lucide-react';
 
 // Firebase Firestore & Auth Imports
@@ -99,6 +100,254 @@ interface FeeDetailStudent {
   status: 'PAID' | 'UNPAID';
   amountPaid: number;
   date?: string;
+}
+
+// ==========================================
+// PREMIUM CLASS SELECTION MODAL
+// ==========================================
+interface ClassSelectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  classesList: any[];
+  selectedClassId: string;
+  onSelectClass: (id: string) => void;
+}
+
+function ClassSelectModal({
+  isOpen,
+  onClose,
+  classesList,
+  selectedClassId,
+  onSelectClass,
+}: ClassSelectModalProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [tempSelected, setTempSelected] = useState(selectedClassId);
+
+  useEffect(() => {
+    setTempSelected(selectedClassId);
+  }, [selectedClassId, isOpen]);
+
+  if (!isOpen) return null;
+
+  const filteredClasses = classesList.filter((c) =>
+    c.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const handleConfirm = () => {
+    if (tempSelected) {
+      onSelectClass(tempSelected);
+    }
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-white dark:bg-[#0c1222] border-2 border-orange-500/50 rounded-3xl p-6 shadow-[0_0_50px_rgba(249,115,22,0.25)] space-y-5 text-slate-900 dark:text-slate-100 relative">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <GraduationCap className="h-6 w-6 stroke-[2.2]" />
+            </div>
+            <div>
+              <h3 className="text-base font-black tracking-tight">Select Class Product</h3>
+              <p className="text-[11px] text-slate-400 font-bold">
+                Choose class to load items ({classesList.length} Available)
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full text-slate-400 hover:text-slate-200 bg-slate-100 dark:bg-slate-800 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500" />
+          <input
+            type="text"
+            placeholder="Filter products by name or code..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 rounded-2xl bg-slate-50 dark:bg-[#070b13] border border-orange-500/30 dark:border-orange-500/30 text-xs font-black placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        {/* Class Cards */}
+        <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
+          {filteredClasses.length === 0 ? (
+            <p className="text-center py-6 text-xs text-slate-400 font-bold">No classes found</p>
+          ) : (
+            filteredClasses.map((cls) => {
+              const isSelected = tempSelected === cls.id;
+              const studentCount = cls.students?.length || 0;
+
+              return (
+                <div
+                  key={cls.id}
+                  onClick={() => setTempSelected(cls.id)}
+                  className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center justify-between ${
+                    isSelected
+                      ? 'border-orange-500 bg-orange-500/5 dark:bg-orange-500/10 shadow-md shadow-orange-500/10'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`h-6 w-6 rounded-full flex items-center justify-center border-2 transition-all ${
+                        isSelected
+                          ? 'border-orange-500 bg-orange-500 text-white'
+                          : 'border-slate-300 dark:border-slate-600'
+                      }`}
+                    >
+                      {isSelected && <CheckCircle2 className="h-4 w-4 fill-current stroke-[2.5]" />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-black">{cls.name}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        STUDENTS: {studentCount} UNITS
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="px-3 py-1 rounded-xl bg-orange-500 text-white font-black text-xs shadow-md shadow-orange-500/20">
+                    Rs. {cls.monthlyFee}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Confirm Action Button */}
+        <button
+          type="button"
+          onClick={handleConfirm}
+          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white font-black text-xs shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-1.5"
+        >
+          <CheckCircle2 className="h-4 w-4 stroke-[2.5]" /> OK
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// PREMIUM MONTH SELECTION MODAL
+// ==========================================
+interface MonthSelectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  availableMonths: { key: string; label: string }[];
+  selectedMonthKey: string;
+  onSelectMonth: (key: string) => void;
+}
+
+function MonthSelectModal({
+  isOpen,
+  onClose,
+  availableMonths,
+  selectedMonthKey,
+  onSelectMonth,
+}: MonthSelectModalProps) {
+  const [tempSelected, setTempSelected] = useState(selectedMonthKey);
+
+  useEffect(() => {
+    setTempSelected(selectedMonthKey);
+  }, [selectedMonthKey, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (tempSelected) {
+      onSelectMonth(tempSelected);
+    }
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md bg-white dark:bg-[#0c1222] border-2 border-orange-500/50 rounded-3xl p-6 shadow-[0_0_50px_rgba(249,115,22,0.25)] space-y-5 text-slate-900 dark:text-slate-100 relative">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-orange-500 text-white shadow-lg shadow-orange-500/30">
+              <Wallet className="h-6 w-6 stroke-[2.2]" />
+            </div>
+            <div>
+              <h3 className="text-base font-black tracking-tight">Select Month</h3>
+              <p className="text-[11px] text-slate-400 font-bold">
+                Choose fee month ({availableMonths.length} Active Months)
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full text-slate-400 hover:text-slate-200 bg-slate-100 dark:bg-slate-800 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Month Cards */}
+        <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
+          {availableMonths.map((m) => {
+            const isSelected = tempSelected === m.key;
+
+            return (
+              <div
+                key={m.key}
+                onClick={() => setTempSelected(m.key)}
+                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center justify-between ${
+                  isSelected
+                    ? 'border-orange-500 bg-orange-500/5 dark:bg-orange-500/10 shadow-md shadow-orange-500/10'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`h-6 w-6 rounded-full flex items-center justify-center border-2 transition-all ${
+                      isSelected
+                        ? 'border-orange-500 bg-orange-500 text-white'
+                        : 'border-slate-300 dark:border-slate-600'
+                    }`}
+                  >
+                    {isSelected && <CheckCircle2 className="h-4 w-4 fill-current stroke-[2.5]" />}
+                  </div>
+                  <div>
+                    <p className="text-xs font-black flex items-center gap-1.5">
+                      📅 {m.label}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                      DYNAMIC 2-MONTH SYSTEM RECORD
+                    </p>
+                  </div>
+                </div>
+
+                {isSelected && (
+                  <span className="px-3 py-1 rounded-xl bg-orange-500 text-white font-black text-[10px] uppercase shadow-md shadow-orange-500/20">
+                    ACTIVE
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Confirm Action Button */}
+        <button
+          type="button"
+          onClick={handleConfirm}
+          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-95 text-white font-black text-xs shadow-lg shadow-orange-500/30 transition-all flex items-center justify-center gap-1.5"
+        >
+          <CheckCircle2 className="h-4 w-4 stroke-[2.5]" /> OK
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ==========================================
@@ -362,6 +611,10 @@ export default function AnalyticsPage() {
   // Firestore Classes State
   const [classesList, setClassesList] = useState<any[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>('');
+
+  // Premium Select Modal States
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [isMonthModalOpen, setIsMonthModalOpen] = useState(false);
 
   // Listen for Authentication State Changes
   useEffect(() => {
@@ -845,6 +1098,11 @@ export default function AnalyticsPage() {
     };
   }, [currentClass, captureCriteria]);
 
+  const currentMonthLabel = useMemo(() => {
+    const found = availableMonths.find((m) => m.key === selectedMonthKey);
+    return found ? found.label : selectedMonthKey;
+  }, [availableMonths, selectedMonthKey]);
+
   const svgPathD = useMemo(() => {
     const points = trendDataPoints;
     const xStep = 380 / (points.length - 1);
@@ -892,21 +1150,21 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* HEADER */}
+      {/* HEADER (FIXED NAVBAR OVERFLOW) */}
       <div className="w-full bg-white/60 dark:bg-[#070b13]/60 backdrop-blur-md sticky top-0 z-40 border-b border-slate-200/50 dark:border-slate-800/50">
         <div className="mx-auto max-w-2xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/')}
-              className="h-10 w-10 rounded-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-orange-500/30 transition-all border-2 border-orange-400/50"
+              className="h-10 w-10 rounded-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-orange-500/30 transition-all border-2 border-orange-400/50 shrink-0"
               title="Back to Dashboard"
             >
               <ArrowLeft className="h-5 w-5 stroke-[2.8]" />
             </button>
-            <h1 className="text-xl font-black tracking-tight">Analytics</h1>
+            <h1 className="text-xl font-black tracking-tight truncate">Analytics</h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2 rounded-2xl bg-slate-100 dark:bg-[#0c1222] border border-slate-200/60 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-orange-500 transition-colors"
@@ -955,50 +1213,38 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="space-y-3">
-            {/* Class Selector */}
+            {/* Premium Class Selector Trigger */}
             <div className="relative">
               <label className="block text-[11px] font-black text-slate-400 mb-1 ml-1">
                 Select Class ({classesList.length} Available)
               </label>
-              <div className="relative">
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="w-full appearance-none rounded-2xl bg-slate-100 dark:bg-[#070b13] px-4 py-3 pr-10 text-xs font-black text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-orange-500/50 cursor-pointer"
-                >
-                  {classesList.length === 0 ? (
-                    <option value="">No Classes Found</option>
-                  ) : (
-                    classesList.map((cls) => (
-                      <option key={cls.id} value={cls.id} className="bg-slate-900 text-white py-1">
-                        🎓 {cls.name} — PKR {cls.monthlyFee}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500 pointer-events-none" />
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsClassModalOpen(true)}
+                className="w-full flex items-center justify-between rounded-2xl bg-slate-100 dark:bg-[#070b13] px-4 py-3 text-xs font-black text-slate-800 dark:text-slate-100 border border-orange-500/30 hover:border-orange-500 transition-all text-left shadow-sm"
+              >
+                <span className="truncate flex items-center gap-2">
+                  🎓 {currentClass ? `${currentClass.name} — PKR ${currentClass.monthlyFee}` : 'Select Class'}
+                </span>
+                <ChevronDown className="h-4 w-4 text-orange-500 shrink-0 ml-2" />
+              </button>
             </div>
 
-            {/* Dynamic Month Selector (Filtered by Class Creation Date) */}
+            {/* Dynamic Premium Month Selector Trigger */}
             <div className="relative">
               <label className="block text-[11px] font-black text-slate-400 mb-1 ml-1">
                 Record Month
               </label>
-              <div className="relative">
-                <select
-                  value={selectedMonthKey}
-                  onChange={(e) => setSelectedMonthKey(e.target.value)}
-                  className="w-full appearance-none rounded-2xl bg-orange-50/50 dark:bg-orange-950/20 px-4 py-3 pr-10 text-xs font-black text-orange-600 dark:text-orange-400 border border-orange-200/80 dark:border-orange-900/50 focus:outline-none focus:ring-2 focus:ring-orange-500/50 cursor-pointer"
-                >
-                  {availableMonths.map((m) => (
-                    <option key={m.key} value={m.key} className="bg-slate-900 text-white py-1">
-                      🗓️ {m.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500 pointer-events-none" />
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsMonthModalOpen(true)}
+                className="w-full flex items-center justify-between rounded-2xl bg-orange-50/50 dark:bg-orange-950/20 px-4 py-3 text-xs font-black text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-900/50 hover:border-orange-500 transition-all text-left shadow-sm"
+              >
+                <span className="truncate flex items-center gap-2">
+                  🗓️ {currentMonthLabel || 'Select Month'}
+                </span>
+                <ChevronDown className="h-4 w-4 text-orange-500 shrink-0 ml-2" />
+              </button>
             </div>
 
             {/* FULL MONTH vs DAILY ANALYTICS TOGGLE */}
@@ -1428,6 +1674,24 @@ export default function AnalyticsPage() {
 
       {/* BOTTOM NAVBAR */}
       <BottomNavbar />
+
+      {/* CUSTOM CLASS SELECTION MODAL */}
+      <ClassSelectModal
+        isOpen={isClassModalOpen}
+        onClose={() => setIsClassModalOpen(false)}
+        classesList={classesList}
+        selectedClassId={selectedClassId}
+        onSelectClass={(id) => setSelectedClassId(id)}
+      />
+
+      {/* CUSTOM MONTH SELECTION MODAL */}
+      <MonthSelectModal
+        isOpen={isMonthModalOpen}
+        onClose={() => setIsMonthModalOpen(false)}
+        availableMonths={availableMonths}
+        selectedMonthKey={selectedMonthKey}
+        onSelectMonth={(key) => setSelectedMonthKey(key)}
+      />
 
       {/* CUSTOM SHOWPIECE CAPTURE SETTINGS MODAL */}
       <CustomCaptureSettingsModal
