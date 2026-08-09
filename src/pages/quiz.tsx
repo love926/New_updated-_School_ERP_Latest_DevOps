@@ -241,7 +241,7 @@ export default function QuizManagementPage() {
         }
       } catch (error) {
         console.error("Error fetching classes:", error);
-      } finally {
+      } font-bold; finally {
         setLoading(false);
       }
     };
@@ -1195,9 +1195,10 @@ export default function QuizManagementPage() {
       {/* MODAL: CHAPTER DETAILS WITH PREV / NEXT FIXED SPACING */}
       {detailModalQuiz && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pb-20 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-lg w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] space-y-4 max-h-[85vh] overflow-y-auto">
+          <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 rounded-3xl p-5 max-w-lg w-full flex flex-col shadow-[0_0_50px_rgba(249,115,22,0.3)] max-h-[82vh] overflow-hidden">
             
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            {/* Header (Flex Shrink 0) */}
+            <div className="flex-shrink-0 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
               <div>
                 <span className="text-[9px] font-black uppercase tracking-wider bg-orange-100 dark:bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-md">
                   TOTAL MARKS: {detailModalQuiz.totalMarks}
@@ -1218,7 +1219,8 @@ export default function QuizManagementPage() {
               </button>
             </div>
 
-            <div className="space-y-2">
+            {/* Search & Filters (Flex Shrink 0) */}
+            <div className="flex-shrink-0 space-y-2 mb-3">
               <div className="relative">
                 <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -1250,7 +1252,8 @@ export default function QuizManagementPage() {
               </div>
             </div>
 
-            <div className="space-y-2 min-h-[220px]">
+            {/* Scrollable Student List Container */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-[180px]">
               {paginatedModalStudents.length === 0 ? (
                 <div className="text-center py-12 text-xs text-slate-400 font-bold">
                   No students found matching search/filter.
@@ -1286,37 +1289,41 @@ export default function QuizManagementPage() {
               )}
             </div>
 
-            {/* PREVIOUS & NEXT PAGINATION CONTROLS (Positioned above navbar cleanly) */}
-            {totalModalPages > 1 && (
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  disabled={detailPage === 1}
-                  onClick={() => setDetailPage((p) => Math.max(1, p - 1))}
-                  className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
-                >
-                  <ChevronLeft className="h-4 w-4" /> Previous
-                </button>
+            {/* Bottom Controls (Flex Shrink 0) */}
+            <div className="flex-shrink-0 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3 mt-2">
+              {/* Pagination controls */}
+              {totalModalPages > 1 && (
+                <div className="flex items-center justify-between">
+                  <button
+                    disabled={detailPage === 1}
+                    onClick={() => setDetailPage((p) => Math.max(1, p - 1))}
+                    className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </button>
 
-                <span className="text-xs font-black text-slate-500 dark:text-slate-400">
-                  Page <span className="text-orange-500 font-black">{detailPage}</span> of {totalModalPages}
-                </span>
+                  <span className="text-xs font-black text-slate-500 dark:text-slate-400">
+                    Page <span className="text-orange-500 font-black">{detailPage}</span> of {totalModalPages}
+                  </span>
 
-                <button
-                  disabled={detailPage >= totalModalPages}
-                  onClick={() => setDetailPage((p) => Math.min(totalModalPages, p + 1))}
-                  className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
-                >
-                  Next <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            )}
+                  <button
+                    disabled={detailPage >= totalModalPages}
+                    onClick={() => setDetailPage((p) => Math.min(totalModalPages, p + 1))}
+                    className="px-4 py-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 font-black text-xs flex items-center gap-1 disabled:opacity-40 transition-all hover:bg-orange-500 hover:text-white"
+                  >
+                    Next <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
 
-            <button
-              onClick={() => setDetailModalQuiz(null)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black py-2.5 rounded-2xl text-xs hover:bg-orange-500 hover:text-white transition-colors"
-            >
-              Close Details
-            </button>
+              <button
+                onClick={() => setDetailModalQuiz(null)}
+                className="w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black py-2.5 rounded-2xl text-xs hover:bg-orange-500 hover:text-white transition-colors"
+              >
+                Close Details
+              </button>
+            </div>
+
           </div>
         </div>
       )}
