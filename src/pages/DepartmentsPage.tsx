@@ -937,8 +937,8 @@ export default function Inventory() {
               <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider px-2 py-1.5 border-b border-slate-100 dark:border-slate-800/60 w-full">
                 <div className="flex-1 min-w-0 pr-1">PRODUCT DETAILS</div>
                 <div className="w-10 sm:w-14 shrink-0 text-center">QTY</div>
-                <div className="shrink-0 text-center min-w-[60px] sm:min-w-[75px]">COST PRICE</div>
-                <div className="shrink-0 text-right min-w-[50px]">ACTIONS</div>
+                <div className="hidden sm:block shrink-0 text-center sm:min-w-[75px]">COST PRICE</div>
+                <div className="shrink-0 text-right min-w-[46px] sm:min-w-[50px]">ACTIONS</div>
               </div>
 
               {/* TABLE BODY */}
@@ -961,7 +961,7 @@ export default function Inventory() {
                       />
                       <div className="min-w-0 flex-1">
                         <p
-                          className="text-xs font-extrabold text-slate-900 dark:text-slate-100 leading-tight truncate"
+                          className="text-xs font-extrabold text-slate-900 dark:text-slate-100 leading-tight break-words"
                           title={product.name}
                         >
                           {product.name}
@@ -980,14 +980,14 @@ export default function Inventory() {
                     </div>
 
                     {/* COST PRICE */}
-                    <div className="shrink-0 text-center min-w-[60px] sm:min-w-[75px]">
+                    <div className="hidden sm:block shrink-0 text-center sm:min-w-[75px]">
                       <span className="text-[10px] sm:text-[11px] font-black text-emerald-600 dark:text-emerald-400 block whitespace-nowrap">
                         PKR {Number(product.costPrice || 0).toLocaleString()}
                       </span>
                     </div>
 
                     {/* ACTIONS */}
-                    <div className="shrink-0 flex items-center justify-end gap-1 min-w-[50px]">
+                    <div className="shrink-0 flex items-center justify-end gap-1 min-w-[46px] sm:min-w-[50px]">
                       <button
                         onClick={() => handleOpenEditProduct(product)}
                         className="p-1 sm:p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all active:scale-95"
