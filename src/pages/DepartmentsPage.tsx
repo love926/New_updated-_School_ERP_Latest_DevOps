@@ -380,7 +380,7 @@ export default function Inventory() {
     }
   };
 
-  // SAVE PRODUCT TO FIREBASE (FETCH / SHOWN FIRST)
+  // SAVE PRODUCT TO FIREBASE
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!productName || !costPrice || !currentUser) return;
@@ -389,7 +389,6 @@ export default function Inventory() {
       const userDocId = getUserDocId(currentUser);
       let targetCategoryId = activeCategoryId || categoryList[0]?.id;
 
-      // Create default category if none exists
       if (!targetCategoryId) {
         targetCategoryId = 'general_inventory';
         const defaultCategoryRef = doc(db, 'users', userDocId, 'inventory_categories', targetCategoryId);
@@ -432,7 +431,6 @@ export default function Inventory() {
           avatar: productAvatar || defaultAvatar,
           createdAt: new Date().toISOString()
         };
-        // Unshift adds product to top of list so it is created & fetched first
         updatedProducts.unshift(newProductObj);
       }
 
@@ -597,13 +595,11 @@ export default function Inventory() {
         <body>
           <div class="invoice-card">
             
-            <!-- HEADER -->
             <div class="header-title">
               <h1 class="company-name">Chaudhary Trader</h1>
               <div class="tagline">Stock Inventory & Product Invoice Statement</div>
             </div>
 
-            <!-- ADDRESS & INFO -->
             <div class="details-box">
               <div class="details-col">
                 <p><strong>Address:</strong> Chak No 389 Jb Toba Tek Singh Punjab Pakistan</p>
@@ -617,7 +613,6 @@ export default function Inventory() {
               </div>
             </div>
 
-            <!-- PRODUCT TABLE -->
             <table>
               <thead>
                 <tr>
@@ -650,7 +645,6 @@ export default function Inventory() {
               </tbody>
             </table>
 
-            <!-- SUMMARY & OWNER FOOTER -->
             <div class="summary-container">
               <div class="owner-section">
                 <div class="owner-title">Authorized Owner</div>
@@ -683,7 +677,6 @@ export default function Inventory() {
     printWindow.document.close();
   };
 
-  // NAV BAR ITEMS MATCHING DESIGN EXACTLY
   const navigationTabs = [
     { id: 'home', label: 'Home', icon: Home, href: '/' },
     { id: 'add_product', label: 'Add Product', icon: PackagePlus, action: () => handleOpenAddProduct() },
@@ -842,7 +835,7 @@ export default function Inventory() {
                         <Layers className="h-5 w-5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-orange-500 transition-colors truncate">
+                        <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-orange-500 transition-colors break-words">
                           {cls.name}
                         </h3>
                         <span className="text-[10px] font-extrabold text-slate-400 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded-md inline-block mt-1 border border-slate-200 dark:border-slate-800">
@@ -950,13 +943,13 @@ export default function Inventory() {
               
               {/* TABLE HEADER */}
               <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-wider px-2 py-1.5 border-b border-slate-100 dark:border-slate-800/60 w-full">
-                <div className="flex-1 min-w-0 pr-1">Product Details</div>
-                <div className="w-16 shrink-0 text-center">Qty</div>
-                <div className="shrink-0 px-1 text-center min-w-[70px]">Cost Price</div>
-                <div className="shrink-0 text-right pl-1 min-w-[55px]">Actions</div>
+                <div className="flex-1 min-w-0 pr-1">PRODUCT DETAILS</div>
+                <div className="w-10 sm:w-14 shrink-0 text-center">QTY</div>
+                <div className="shrink-0 px-1 text-center min-w-[50px] sm:min-w-[65px]">COST PRICE</div>
+                <div className="shrink-0 text-right pl-1 min-w-[46px] sm:min-w-[50px]">ACTIONS</div>
               </div>
 
-              {/* TABLE BODY (FULL NAME SHOWN COMPLETELY WITHOUT TRUNCATION OR CUTTING OFF) */}
+              {/* TABLE BODY - UNTRUNCATED FULL PRODUCT NAME FIX */}
               {paginatedProducts.length === 0 ? (
                 <div className="text-center py-8 text-xs font-bold text-slate-400">
                   No products in this category.
@@ -965,17 +958,17 @@ export default function Inventory() {
                 paginatedProducts.map((product) => (
                   <div
                     key={product.id}
-                    className="flex items-center justify-between gap-1.5 px-2 py-2.5 rounded-2xl hover:bg-orange-500/5 dark:hover:bg-slate-900/60 transition-colors border-b border-slate-100 dark:border-slate-800/40 last:border-0 w-full group"
+                    className="flex items-center justify-between gap-1 sm:gap-2 px-2 py-2.5 rounded-2xl hover:bg-orange-500/5 dark:hover:bg-slate-900/60 transition-colors border-b border-slate-100 dark:border-slate-800/40 last:border-0 w-full group"
                   >
-                    {/* PRODUCT NAME & IMAGE - Full Name Unclamped Fix */}
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-1">
+                    {/* PRODUCT NAME & IMAGE - FULL UNTRUNCATED NAME FIX */}
+                    <div className="flex items-center gap-2 min-w-0 flex-1 pr-1">
                       <img
                         src={product.avatar}
                         alt={product.name}
-                        className="h-9 w-9 rounded-xl object-cover shrink-0 border border-slate-200 dark:border-slate-800 shadow-sm bg-slate-100 dark:bg-slate-900"
+                        className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl object-cover shrink-0 border border-slate-200 dark:border-slate-800 shadow-sm bg-slate-100 dark:bg-slate-900"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-black text-slate-900 dark:text-slate-100 leading-tight break-words">
+                        <p className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-slate-100 leading-snug break-words whitespace-normal">
                           {product.name}
                         </p>
                         <p className="text-[9px] font-bold text-slate-400 mt-0.5 whitespace-nowrap">
@@ -985,31 +978,31 @@ export default function Inventory() {
                     </div>
 
                     {/* PRODUCT QUANTITY */}
-                    <div className="w-14 shrink-0 text-center text-xs font-black text-slate-800 dark:text-slate-200">
-                      <span className="bg-orange-500/10 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded-md border border-orange-500/20 inline-block">
+                    <div className="w-10 sm:w-14 shrink-0 text-center text-xs font-black text-slate-800 dark:text-slate-200">
+                      <span className="bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 sm:px-2 py-0.5 rounded-md border border-orange-500/20 inline-block text-[11px] sm:text-xs">
                         {product.quantity}
                       </span>
                     </div>
 
                     {/* COST PRICE */}
-                    <div className="shrink-0 px-1 text-center min-w-[65px]">
-                      <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 block">
+                    <div className="shrink-0 px-0.5 sm:px-1 text-center min-w-[50px] sm:min-w-[65px]">
+                      <span className="text-[10px] sm:text-[11px] font-black text-emerald-600 dark:text-emerald-400 block whitespace-nowrap">
                         PKR {Number(product.costPrice || 0).toLocaleString()}
                       </span>
                     </div>
 
                     {/* ACTIONS */}
-                    <div className="shrink-0 flex items-center justify-end gap-1 pl-1 min-w-[50px]">
+                    <div className="shrink-0 flex items-center justify-end gap-1 min-w-[46px] sm:min-w-[50px]">
                       <button
                         onClick={() => handleOpenEditProduct(product)}
-                        className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:shadow-[0_0_10px_rgba(16,185,129,0.4)] transition-all active:scale-95"
+                        className="p-1 sm:p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:shadow-[0_0_10px_rgba(16,185,129,0.4)] transition-all active:scale-95"
                         title="Edit Product"
                       >
                         <Edit2 className="h-3 w-3" />
                       </button>
                       <button
                         onClick={() => setDeleteConfirmProduct(product)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 hover:shadow-[0_0_10px_rgba(244,63,94,0.4)] transition-all active:scale-95"
+                        className="p-1 sm:p-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 hover:shadow-[0_0_10px_rgba(244,63,94,0.4)] transition-all active:scale-95"
                         title="Delete Product"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -1091,7 +1084,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* PRINT PERMISSION MODAL WITH GLOWING NOTIFICATION */}
+      {/* PRINT PERMISSION MODAL */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#0c1222] border border-orange-500/40 rounded-3xl max-w-sm w-full p-6 shadow-[0_0_50px_rgba(249,115,22,0.35)] relative text-center space-y-4">
