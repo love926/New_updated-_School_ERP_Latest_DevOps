@@ -50,7 +50,7 @@ interface ClassLibrary {
   resources: LibraryResource[];
 }
 
-// --- BOTTOM NAVBAR COMPONENT ---
+// --- FIXED BOTTOM NAVBAR COMPONENT ---
 function BottomNavbar() {
   const location = useLocation();
 
@@ -63,8 +63,8 @@ function BottomNavbar() {
   ];
 
   return (
-    <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-      <nav className="pointer-events-auto bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-[0_10px_40px_rgba(0,0,0,0.12)] rounded-full px-5 py-2 flex items-center justify-between gap-6 max-w-md w-full">
+    <div className="fixed bottom-3 left-0 right-0 z-50 flex justify-center px-3 pointer-events-none">
+      <nav className="pointer-events-auto bg-white/95 dark:bg-[#0c1222]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 shadow-[0_10px_40px_rgba(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center justify-around gap-1 max-w-md w-full">
         {navigationTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive =
@@ -75,19 +75,19 @@ function BottomNavbar() {
             <Link
               key={tab.id}
               to={tab.href}
-              className="flex flex-col items-center justify-center flex-1 py-1 transition-all group"
+              className="flex flex-col items-center justify-center flex-1 py-0.5 transition-all group min-w-0"
             >
               <div
-                className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${
+                className={`p-2 rounded-full transition-all duration-300 flex items-center justify-center ${
                   isActive
-                    ? 'bg-orange-500 text-white shadow-md scale-110'
+                    ? 'bg-orange-500 text-white shadow-md scale-105'
                     : 'text-slate-400 bg-transparent group-hover:text-slate-600 dark:group-hover:text-slate-300 group-hover:bg-slate-100 dark:group-hover:bg-slate-800'
                 }`}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-5 w-5 shrink-0" />
               </div>
               <span
-                className={`text-[10px] font-bold mt-1 transition-colors ${
+                className={`text-[9px] sm:text-[10px] font-bold mt-0.5 transition-colors truncate max-w-full text-center ${
                   isActive ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                 }`}
               >
@@ -700,7 +700,7 @@ export default function NotesLibraryPage() {
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white">Delete Document?</h3>
               <p className="text-xs text-slate-400 font-bold mt-1">
-                Are you sure you want to delete this document, mere jaan?
+                Are you sure you want to delete this document?
               </p>
             </div>
             <div className="flex items-center gap-2 pt-2">
