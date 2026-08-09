@@ -120,11 +120,8 @@ export default function SettingsPage() {
     teacherRemarksRequired: true
   });
 
-  // 🎯 FIRESTORE DOC REFERENCE FOR PROFILE DATA (SUBCOLLECTION OR MAIN USER DOC)
-  const getSettingsDocRef = (uid?: string) => {
-    const userId = uid || auth?.currentUser?.uid || 'vyYKFEuB2lMSAuMOAJIPrCXK2ca2';
-    return doc(db, 'users', userId, 'settings', 'profile_data');
-  };
+  // 1. Current logged-in user email/ID
+  const currentUserEmail = auth?.currentUser?.email || profile.email || 'admin@gmail.com';
 
   // 🎨 POPUP TRIGGER HELPER
   const triggerPopup = (title: string, message: string, type: 'success' | 'delete' | 'warning' | 'info' = 'success') => {
@@ -142,7 +139,7 @@ export default function SettingsPage() {
       setLoading(true);
 
       // Current User Identification
-      const userEmail = user?.email || 'admin@gmail.com';
+      const userEmail = user?.email || profile.email || 'admin@gmail.com';
       const userId = user ? user.uid : 'vyYKFEuB2lMSAuMOAJIPrCXK2ca2';
 
       // 1. First fetch Main User Document Data from `users/{userEmail}` or `users/{userId}` for Dynamic Auto-fill
@@ -171,7 +168,7 @@ export default function SettingsPage() {
         avatarUrl: mainUserData?.profileImage || mainUserData?.avatarUrl || ''
       };
 
-      // 2. Realtime listener for saved settings in subcollection
+      // 2. Realtime listener for saved settings in subcollection: users/{userEmail}/settings/profile_data
       const settingsRef = doc(db, 'users', userEmail, 'settings', 'profile_data');
 
       if (unsubscribeSnapshot) unsubscribeSnapshot();
@@ -251,7 +248,7 @@ export default function SettingsPage() {
     if (!isPhoneValid) return triggerPopup('Phone Incomplete', 'Enter complete 10-digit number.', 'warning');
 
     try {
-      const userDocId = auth?.currentUser?.email || profile.email || 'admin@gmail.com';
+      const userDocId = currentUserEmail;
       const settingsRef = doc(db, 'users', userDocId, 'settings', 'profile_data');
       await setDoc(settingsRef, { profile, updatedAt: new Date().toISOString() }, { merge: true });
       setIsEditing(false);
@@ -267,7 +264,7 @@ export default function SettingsPage() {
   const handleConfirmDelete = async () => {
     setShowDeleteModal(false);
     try {
-      const userDocId = auth?.currentUser?.email || profile.email || 'admin@gmail.com';
+      const userDocId = currentUserEmail;
       await deleteDoc(doc(db, 'users', userDocId, 'settings', 'profile_data'));
       setHasProfile(false);
       setIsEditing(true);
@@ -308,47 +305,47 @@ export default function SettingsPage() {
 
       {/* 🌟 1. MINIMAL PREMIUM UTILITY HEADER */}
       <div className="w-full bg-white/40 dark:bg-[#070b13]/40 backdrop-blur-sm border-b border-slate-200/40 dark:border-slate-900/40 sticky top-0 z-40 transition-colors">
-        <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8 gap-2">
+        <div className="mx-auto max-w-7xl flex h-14 items-center justify-between px-3 sm:px-6 lg:px-8 gap-2">
 
           {/* 🔙 BACK BUTTON & SEARCH */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(-1)}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/30 hover:bg-orange-600 active:scale-90 transition-all cursor-pointer"
+              className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/30 hover:bg-orange-600 active:scale-90 transition-all cursor-pointer"
               title="Go Back"
             >
-              <ArrowLeft className="h-5 w-5 stroke-[2.5]" />
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 stroke-[2.5]" />
             </button>
 
             {/* Quick Search */}
-            <div className="relative w-36 sm:w-64">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <div className="relative w-28 sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Quick search..."
-                className="w-full rounded-xl border border-slate-200/60 bg-white/60 py-1.5 pl-9 pr-4 text-xs outline-none transition-all focus:border-orange-500 focus:bg-white dark:border-slate-800 dark:bg-[#0c1222] dark:focus:bg-[#0c1222] dark:text-white"
+                className="w-full rounded-xl border border-slate-200/60 bg-white/60 py-1.5 pl-8 pr-2 sm:pl-9 sm:pr-4 text-xs outline-none transition-all focus:border-orange-500 focus:bg-white dark:border-slate-800 dark:bg-[#0c1222] dark:focus:bg-[#0c1222] dark:text-white"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Dark Mode Toggle */}
             <button
               onClick={() => setIsDark(!isDark)}
-              className="flex h-7 w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30"
+              className="flex h-6 w-10 sm:h-7 sm:w-12 items-center rounded-full bg-slate-200/60 p-0.5 transition-all dark:bg-slate-800 border border-slate-300/30"
               title="Toggle Theme"
             >
-              <div className={`flex h-5 w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
-                {isDark ? <Moon className="h-3 w-3 fill-current" /> : <Sun className="h-3 w-3 fill-current" />}
+              <div className={`flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-white text-orange-500 shadow-sm transition-all ${isDark ? 'translate-x-4 sm:translate-x-5 bg-slate-950 text-yellow-400' : ''}`}>
+                {isDark ? <Moon className="h-2.5 w-2.5 sm:h-3 sm:w-3 fill-current" /> : <Sun className="h-2.5 w-2.5 sm:h-3 sm:w-3 fill-current" />}
               </div>
             </button>
 
             {/* Notification Bell */}
             <Link
               to="/alerts"
-              className="relative rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-[#0c1222] transition-all hover:scale-105 active:scale-95"
+              className="relative rounded-xl p-1.5 sm:p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-[#0c1222] transition-all hover:scale-105 active:scale-95"
             >
               <Bell className="h-4 w-4" />
               <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-orange-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#070b13] animate-pulse">
@@ -360,7 +357,7 @@ export default function SettingsPage() {
             <Link
               to="/settings"
               title="View Profile / Settings"
-              className="h-8 w-8 overflow-hidden rounded-full ring-2 ring-orange-500/70 shadow-[0_0_12px_rgba(249,115,22,0.4)] transition-all hover:scale-110 active:scale-95 cursor-pointer block"
+              className="h-7 w-7 sm:h-8 sm:w-8 shrink-0 overflow-hidden rounded-full ring-2 ring-orange-500/70 shadow-[0_0_12px_rgba(249,115,22,0.4)] transition-all hover:scale-110 active:scale-95 cursor-pointer block"
             >
               <img
                 src={
@@ -439,27 +436,27 @@ export default function SettingsPage() {
       )}
 
       {/* MAIN CONTENT AREA */}
-      <main className="mx-auto max-w-2xl px-4 py-6 space-y-6">
+      <main className="mx-auto max-w-2xl px-3 sm:px-4 py-6 space-y-6">
 
         {/* HERO BANNER */}
-        <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-3xl p-6 text-white shadow-xl shadow-orange-500/10 relative overflow-hidden flex items-center justify-between border border-orange-400/30">
-          <div className="space-y-1 z-10 max-w-[80%]">
-            <span className="inline-flex items-center gap-1 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">
+        <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-3xl p-5 sm:p-6 text-white shadow-xl shadow-orange-500/10 relative overflow-hidden flex items-center justify-between border border-orange-400/30">
+          <div className="space-y-1 z-10 max-w-[85%] sm:max-w-[80%]">
+            <span className="inline-flex items-center gap-1 bg-white/20 backdrop-blur-md px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider">
               <ShieldCheck className="h-3 w-3" /> Dedicated Sub-Collection Active
             </span>
-            <h2 className="text-xl font-black tracking-tight">Settings & Teacher Profile</h2>
-            <p className="text-xs text-orange-50 font-medium leading-relaxed opacity-90">
+            <h2 className="text-lg sm:text-xl font-black tracking-tight">Settings & Teacher Profile</h2>
+            <p className="text-[11px] sm:text-xs text-orange-50 font-medium leading-relaxed opacity-90">
               `settings` sub-collection is separated from classes & attendance collections.
             </p>
           </div>
-          <Sliders className="h-28 w-28 text-white/10 absolute -right-3 -bottom-3 pointer-events-none" />
+          <Sliders className="h-24 w-24 sm:h-28 sm:w-28 text-white/10 absolute -right-3 -bottom-3 pointer-events-none" />
         </div>
 
         {/* SUB-TAB NAVIGATION */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setSettingsTab('profile')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
+            className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
               settingsTab === 'profile'
                 ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
                 : 'bg-white dark:bg-[#0c1222] text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -470,7 +467,7 @@ export default function SettingsPage() {
 
           <button
             onClick={() => setSettingsTab('grading')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
+            className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
               settingsTab === 'grading'
                 ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
                 : 'bg-white dark:bg-[#0c1222] text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -481,7 +478,7 @@ export default function SettingsPage() {
 
           <button
             onClick={() => setSettingsTab('report_config')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
+            className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
               settingsTab === 'report_config'
                 ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
                 : 'bg-white dark:bg-[#0c1222] text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -492,7 +489,7 @@ export default function SettingsPage() {
 
           <button
             onClick={() => setSettingsTab('notifications')}
-            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
+            className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap active:scale-95 ${
               settingsTab === 'notifications'
                 ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
                 : 'bg-white dark:bg-[#0c1222] text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-800'
@@ -504,68 +501,69 @@ export default function SettingsPage() {
 
         {/* PROFILE TAB */}
         {settingsTab === 'profile' && (
-          <div className="relative group rounded-[32px] p-[2px] transition-all overflow-hidden shadow-xl">
+          <div className="relative group rounded-[28px] sm:rounded-[32px] p-[2px] transition-all overflow-hidden shadow-xl">
             <div className="absolute inset-[-1000%] bg-[conic-gradient(from_90deg_at_50%_50%,#f97316_0%,#fbbf24_25%,#f97316_50%,#fbbf24_75%,#f97316_100%)] animate-[spin_4s_linear_infinite]" />
 
-            <div className="relative rounded-[30px] bg-white dark:bg-[#0c1222] p-6 space-y-6">
+            <div className="relative rounded-[26px] sm:rounded-[30px] bg-white dark:bg-[#0c1222] p-4 sm:p-6 space-y-6 overflow-hidden">
 
               {/* SAVED PROFILE CARD */}
               {hasProfile && !isEditing ? (
                 <div className="space-y-6 animate-fadeIn">
-                  <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="h-5 w-5 text-emerald-500" />
-                      <h3 className="font-black text-slate-900 dark:text-white text-base uppercase tracking-wider">
+                  <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-100 dark:border-slate-800 gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                      <UserCheck className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-500" />
+                      <h3 className="font-black text-slate-900 dark:text-white text-xs sm:text-base uppercase tracking-wider">
                         PROFILE
                       </h3>
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                    {/* BUTTON SIZE & COMPACT RESPONSIVE LAYOUT */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => setIsEditing(true)}
-                        className="px-3.5 py-2 rounded-xl bg-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md hover:bg-orange-600 active:scale-95 transition-all"
+                        className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-orange-500 text-white font-bold text-[11px] sm:text-xs flex items-center gap-1 shadow-md hover:bg-orange-600 active:scale-95 transition-all whitespace-nowrap"
                       >
-                        <Pencil className="h-3.5 w-3.5" /> Edit Profile
+                        <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> Edit Profile
                       </button>
 
                       <button
                         onClick={() => setShowDeleteModal(true)}
-                        className="p-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 active:scale-95 transition-all"
+                        className="p-1.5 sm:p-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 active:scale-95 transition-all shrink-0"
                         title="Delete Profile"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 bg-slate-50 dark:bg-slate-900/60 p-5 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col items-center justify-center gap-4 bg-slate-50 dark:bg-slate-900/60 p-4 sm:p-5 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <img
                       src={
                         profile.avatarUrl ||
                         'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250'
                       }
                       alt="Avatar"
-                      className="w-20 h-20 rounded-2xl object-cover ring-2 ring-orange-500/30 shadow-md"
+                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover ring-2 ring-orange-500/30 shadow-md shrink-0"
                     />
 
-                    <div className="space-y-2 text-center sm:text-left flex-1">
+                    <div className="space-y-3 text-center w-full">
                       <div>
-                        <h2 className="text-lg font-black text-slate-900 dark:text-white">{profile.name}</h2>
-                        <p className="text-xs font-bold text-orange-500">{profile.role}</p>
+                        <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white break-words">{profile.name}</h2>
+                        <p className="text-xs font-bold text-orange-500 break-words">{profile.role}</p>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                        <div className="flex items-center gap-1.5 justify-center sm:justify-start">
-                          <Building className="h-3.5 w-3.5 text-orange-500" />
-                          <span>{profile.schoolName || 'Not Set'}</span>
+                      <div className="flex flex-col items-center justify-center gap-2 pt-2 text-xs font-medium text-slate-500 dark:text-slate-400 w-full">
+                        <div className="flex items-center gap-1.5 justify-center max-w-full">
+                          <Building className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          <span className="truncate">{profile.schoolName || 'Not Set'}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 justify-center sm:justify-start">
-                          <Mail className="h-3.5 w-3.5 text-orange-500" />
-                          <span>{profile.email || 'Not Set'}</span>
+                        <div className="flex items-center gap-1.5 justify-center max-w-full">
+                          <Mail className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          <span className="truncate">{profile.email || 'Not Set'}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 justify-center sm:justify-start">
-                          <Phone className="h-3.5 w-3.5 text-orange-500" />
-                          <span>{profile.phone || 'Not Set'}</span>
+                        <div className="flex items-center gap-1.5 justify-center max-w-full">
+                          <Phone className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          <span className="truncate">{profile.phone || 'Not Set'}</span>
                         </div>
                       </div>
                     </div>
@@ -577,20 +575,20 @@ export default function SettingsPage() {
                 <div className="space-y-4 animate-fadeIn">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-3">
-                      <div className="relative">
+                      <div className="relative shrink-0">
                         <img
                           src={
                             profile.avatarUrl ||
                             'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250'
                           }
                           alt="Avatar"
-                          className="w-14 h-14 rounded-2xl object-cover ring-2 ring-orange-500/30 shadow-md"
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover ring-2 ring-orange-500/30 shadow-md"
                         />
                         <button
                           onClick={() => fileInputRef.current?.click()}
-                          className="absolute -bottom-1 -right-1 p-1.5 rounded-xl bg-orange-500 text-white shadow-md hover:bg-orange-600 active:scale-95 transition-all"
+                          className="absolute -bottom-1 -right-1 p-1 sm:p-1.5 rounded-xl bg-orange-500 text-white shadow-md hover:bg-orange-600 active:scale-95 transition-all"
                         >
-                          <Camera className="h-3.5 w-3.5" />
+                          <Camera className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                         </button>
                         <input
                           ref={fileInputRef}
@@ -602,10 +600,10 @@ export default function SettingsPage() {
                       </div>
 
                       <div>
-                        <h3 className="font-black text-slate-900 dark:text-white text-base">
+                        <h3 className="font-black text-slate-900 dark:text-white text-sm sm:text-base">
                           {hasProfile ? 'Edit Profile Details' : 'Create Teacher Profile'}
                         </h3>
-                        <p className="text-xs font-medium text-slate-400">
+                        <p className="text-[11px] sm:text-xs font-medium text-slate-400">
                           {hasProfile ? 'Update existing teacher information' : 'Fill all fields to save in settings collection'}
                         </p>
                       </div>
@@ -614,7 +612,7 @@ export default function SettingsPage() {
                     {hasProfile && (
                       <button
                         onClick={() => setIsEditing(false)}
-                        className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0 ml-2"
                       >
                         Cancel
                       </button>
@@ -778,9 +776,10 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* OTHER SETTINGS TABS */}
+        {/* OTHER SETTINGS TABS WITH USERID PASSING */}
         {settingsTab === 'grading' && (
           <GradingTab
+            userId={currentUserEmail}
             ratingPriorities={ratingPriorities}
             setRatingPriorities={setRatingPriorities}
           />
@@ -788,6 +787,7 @@ export default function SettingsPage() {
 
         {settingsTab === 'report_config' && (
           <ReportConfigTab
+            userId={currentUserEmail}
             reportMetrics={reportMetrics}
             setReportMetrics={setReportMetrics}
           />
@@ -795,6 +795,7 @@ export default function SettingsPage() {
 
         {settingsTab === 'notifications' && (
           <TriggerAlertsTab
+            userId={currentUserEmail}
             thresholds={thresholds}
             setThresholds={setThresholds}
           />

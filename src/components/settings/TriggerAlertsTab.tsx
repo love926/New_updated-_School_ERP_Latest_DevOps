@@ -8,7 +8,7 @@ import {
   MessageSquare, 
   Smartphone 
 } from 'lucide-react';
-import { db } from "../../lib/firebase"; // Adjust path as per your setup
+import { db, auth } from "../../lib/firebase"; 
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface Thresholds {
@@ -30,10 +30,13 @@ const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 export default function TriggerAlertsTab({ 
-  userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83", 
+  userId, 
   thresholds: propThresholds, 
   setThresholds: propSetThresholds 
 }: TriggerAlertsTabProps) {
+
+  // Dynamic User Document ID fallback strategy
+  const userDocId = userId || auth?.currentUser?.email || "admin@gmail.com";
 
   // Internal State
   const [localThresholds, setLocalThresholds] = useState<Thresholds>(propThresholds || DEFAULT_THRESHOLDS);
@@ -51,10 +54,10 @@ export default function TriggerAlertsTab({
   // 1. Fetch saved settings from Firestore on Mount
   useEffect(() => {
     const fetchAlertSettings = async () => {
-      if (!userId) return;
+      if (!userDocId) return;
       setLoading(true);
       try {
-        const docRef = doc(db, 'users', userId, 'settings', 'trigger_alerts');
+        const docRef = doc(db, 'users', userDocId, 'settings', 'trigger_alerts');
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
@@ -69,13 +72,13 @@ export default function TriggerAlertsTab({
     };
 
     fetchAlertSettings();
-  }, [userId]);
+  }, [userDocId]);
 
   // 2. Save settings to Firestore
   const handleSaveToFirestore = async () => {
     setSaving(true);
     try {
-      const docRef = doc(db, 'users', userId, 'settings', 'trigger_alerts');
+      const docRef = doc(db, 'users', userDocId, 'settings', 'trigger_alerts');
       await setDoc(docRef, {
         ...thresholds,
         updatedAt: new Date().toISOString(),

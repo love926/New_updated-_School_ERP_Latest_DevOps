@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Save, CheckCircle2, Loader2, Check } from 'lucide-react';
-import { db } from "../../lib/firebase"; // Path to your Firebase config
+import { db, auth } from "../../lib/firebase"; 
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface ReportMetrics {
@@ -25,7 +25,10 @@ const DEFAULT_METRICS: ReportMetrics = {
   teacherRemarksRequired: true,
 };
 
-export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83" }: ReportConfigTabProps) {
+export default function ReportConfigTab({ userId }: ReportConfigTabProps) {
+  // Dynamic User Document ID fallback strategy
+  const userDocId = userId || auth?.currentUser?.email || "admin@gmail.com";
+
   // Local States
   const [metrics, setMetrics] = useState<ReportMetrics>(DEFAULT_METRICS);
   const [loading, setLoading] = useState<boolean>(false);
@@ -61,13 +64,13 @@ export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83
     },
   ];
 
-  // Fetch Existing Settings from Firestore (`users/{userId}/settings/report_config`)
+  // Fetch Existing Settings from Firestore (`users/{userDocId}/settings/report_config`)
   useEffect(() => {
     const fetchReportConfig = async () => {
-      if (!userId) return;
+      if (!userDocId) return;
       setLoading(true);
       try {
-        const docRef = doc(db, 'users', userId, 'settings', 'report_config');
+        const docRef = doc(db, 'users', userDocId, 'settings', 'report_config');
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
@@ -84,7 +87,7 @@ export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83
     };
 
     fetchReportConfig();
-  }, [userId]);
+  }, [userDocId]);
 
   // Toggle Function
   const handleToggle = (key: keyof ReportMetrics) => {
@@ -98,7 +101,7 @@ export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83
   const handleSaveToFirestore = async () => {
     setSaving(true);
     try {
-      const docRef = doc(db, 'users', userId, 'settings', 'report_config');
+      const docRef = doc(db, 'users', userDocId, 'settings', 'report_config');
       await setDoc(
         docRef,
         {
@@ -118,14 +121,14 @@ export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83
   };
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto p-2 sm:p-4">
+    <div className="space-y-6 max-w-2xl mx-auto p-2 sm:p-4 pb-20">
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 space-y-3">
           <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
           <p className="text-xs text-slate-400 font-bold">Loading Configuration...</p>
         </div>
       ) : (
-      <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 dark:border-orange-500 rounded-[30px] p-6 shadow-md space-y-5">
+      <div className="bg-white dark:bg-[#0c1222] border-2 border-orange-500 dark:border-orange-500 rounded-[30px] p-5 sm:p-6 shadow-md space-y-5">
           {/* Card Header */}
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
             <div>
@@ -179,19 +182,19 @@ export default function ReportConfigTab({ userId = "X1Q76ib1XXPWcPp3FSQPLLaTzL83
             })}
           </div>
 
-          {/* SAVE BUTTON */}
+          {/* MOBILE RESPONSIVE SAVE BUTTON */}
           <div className="pt-2">
             <button
               onClick={handleSaveToFirestore}
               disabled={saving}
-              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 px-6 rounded-full shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 text-sm uppercase tracking-wider"
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-3 sm:py-3.5 px-4 sm:px-6 rounded-2xl sm:rounded-full shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 text-xs sm:text-sm uppercase tracking-wider"
             >
               {saving ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
               ) : (
-                <Save className="w-5 h-5" />
+                <Save className="w-4 h-4 sm:w-5 sm:h-5" />
               )}
-              <span>Save Report Configuration</span>
+              <span className="truncate">Save Report Configuration</span>
             </button>
           </div>
 
