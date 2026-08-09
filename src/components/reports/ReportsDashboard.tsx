@@ -1021,7 +1021,7 @@ export default function ReportsDashboard() {
               <div>
                 <h4 className="text-xs font-black text-rose-500">First Add Grading Rules In Setting Page!</h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-300 font-bold">
-                  Document Path: <code className="bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[10px]">users/{userEmail || 'USER_EMAIL'}/settings/grading_rules</code>
+                  Document Path: 
                 </p>
               </div>
             </div>
